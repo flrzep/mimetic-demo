@@ -1,0 +1,14 @@
+{
+  "name": "cv-app-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["frontend"],
+  "scripts": {
+    "dev:frontend": "cd frontend && npm start",
+    "dev:backend": "cd backend && uvicorn main:app --reload --port 8000",
+    "deploy:modal": "cd modal-service && echo 'modal deploy modal_service.py'",
+    "build:frontend": "cd frontend && npm run build",
+    "install:frontend": "cd frontend && npm install",
+    "start:local": "docker-compose up"
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, DropzoneOptions } from 'react-dropzone';
 import { Video, Upload, Trash2, Play, Camera } from 'lucide-react';
 import { isMobileDevice } from '../utils/device';
 

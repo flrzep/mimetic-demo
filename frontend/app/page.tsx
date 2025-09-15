@@ -492,26 +492,26 @@ export default function Page() {
 
   return (
     <div className="min-h-screen text-slate-200 bg-[linear-gradient(180deg,#0f172a,#0b1020_60%)]">
-      <header className="py-8">
+      <header className="py-4 sm:py-8 mb-6">
         <div className="max-w-3xl mx-auto px-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-row sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               <Image
                 src="/logo-title.png"
                 alt="Computer Vision Demo Logo"
                 width={180}
                 height={50}
-                className="h-10 w-auto mr-4"
+                className="h-8 sm:h-10 w-auto"
                 priority
               />
               <div>
-                <h1 className="m-0 text-2xl font-bold tracking-tight">Demo</h1>
-                <p className="mt-0 text-slate-400">Test our models online</p>
+                <h1 className="m-0 text-xl sm:text-2xl font-bold tracking-tight">Demo</h1>
+                <p className="mt-0 text-sm sm:text-base text-slate-400">Test our models online</p>
               </div>
             </div>
             
             {/* Sign In/Out Button */}
-            <div>
+            <div className="self-end sm:self-auto">
               {user ? (
                 <button className="px-3 py-1.5 rounded-md border border-white/10 hover:bg-white/10 text-sm" onClick={signOut} aria-label="Sign out">Sign out</button>
               ) : (
@@ -522,30 +522,30 @@ export default function Page() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 grid gap-4">
+      <main className="max-w-3xl mx-auto px-3 sm:px-4 grid gap-3 sm:gap-4 pb-8">
         {/* Model Selector and Server Status Row */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-4">
           <div className="flex-1">
             <div className="relative" data-model-dropdown>
               <button
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 bg-slate-900/50 hover:bg-slate-800/50 transition-colors min-w-[280px]"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border border-white/10 bg-slate-900/50 hover:bg-slate-800/50 transition-colors w-full lg:min-w-[280px]"
                 aria-expanded={isModelDropdownOpen}
                 aria-haspopup="listbox"
               >
-                <Brain size={18} className="text-brand-500" />
-                <div className="flex-1 text-left">
-                  <div className="font-medium">
+                <Brain className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-brand-500 flex-shrink-0" />
+                <div className="flex-1 text-left min-w-0">
+                  <div className="font-medium text-sm sm:text-base truncate">
                     {AVAILABLE_MODELS.find(m => m.id === selectedModel)?.name}
                     {AVAILABLE_MODELS.find(m => m.id === selectedModel)?.recommended && (
                       <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-500/20 text-green-300 rounded">Recommended</span>
                     )}
                   </div>
-                  <div className="text-sm text-slate-400">
+                  <div className="text-xs sm:text-sm text-slate-400 truncate">
                     {AVAILABLE_MODELS.find(m => m.id === selectedModel)?.description}
                   </div>
                 </div>
-                <ChevronDown size={16} className={`transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform flex-shrink-0" style={{ transform: isModelDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }} />
               </button>
 
               {isModelDropdownOpen && (
@@ -604,46 +604,49 @@ export default function Page() {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex space-x-1 p-1 rounded-xl bg-slate-900/50 border border-white/10">
+        <div className="flex flex-col sm:flex-row gap-1 p-1 justify-stretch rounded-xl bg-slate-900/50 border border-white/10">
           <button
             onClick={() => handleTabChange('image')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'image'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-400 hover:text-white hover:bg-white/10'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
-            <ImageIcon size={18} />
-            <span>Image Processing</span>
+            <ImageIcon className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
+            <span className="hidden sm:inline">Image Processing</span>
+            <span className="sm:hidden">Image</span>
           </button>
           <button
             onClick={() => handleTabChange('video')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'video'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-400 hover:text-white hover:bg-white/10'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
-            <Video size={18} />
-            <span>Video Processing</span>
+            <Video className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
+            <span className="hidden sm:inline">Video Processing</span>
+            <span className="sm:hidden">Video</span>
           </button>
           <button
             onClick={() => handleTabChange('stream')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'stream'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-400 hover:text-white hover:bg-white/10'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
-            <Radio size={18} />
-            <span>Stream Processing</span>
+            <Radio className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
+            <span className="hidden sm:inline">Stream Processing</span>
+            <span className="sm:hidden">Stream</span>
           </button>
         </div>
 
         {/* Tab Content */}
         {activeTab === 'image' && (
           <>
-            <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
+            <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-4 sm:p-5 shadow-xl">
               <ImageUpload
                 onDrop={onDrop}
                 onRejected={onRejected}
@@ -651,6 +654,9 @@ export default function Page() {
                 setIsDragging={setIsDragging}
                 file={file}
                 previewUrl={previewUrl}
+                processedImageUrl={processedImageUrl}
+                showProcessedImage={showProcessedImage}
+                onToggleImage={() => setShowProcessedImage(!showProcessedImage)}
                 onPredict={predict}
                 canPredict={canPredict}
                 onReset={reset}
@@ -663,18 +669,18 @@ export default function Page() {
               {isLoading && (
                 <div className="grid gap-2 place-items-center text-center p-4">
                   <LoadingSpinner />
-                  <p className="text-slate-400">Processing... This may take a bit if the backend is waking up.</p>
+                  <p className="text-slate-400 text-sm sm:text-base">Processing... This may take a bit if the backend is waking up.</p>
                   {uploadProgress > 0 && (
-                    <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="h-2 w-full max-w-xs rounded-full bg-white/10 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
                       <div className="h-full bg-gradient-to-r from-brand-500 to-blue-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                   )}
                 </div>
               )}
               {!!error && (
-                <div className="flex items-center gap-2 p-3 rounded-xl border border-red-200/30 bg-red-500/10 text-red-100" role="alert">
-                  <AlertTriangle size={18} />
-                  <span>{error}</span>
+                <div className="flex items-start gap-2 p-3 rounded-xl border border-red-200/30 bg-red-500/10 text-red-100" role="alert">
+                  <AlertTriangle className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0 mt-0.5" />
+                  <span className="text-sm sm:text-base">{error}</span>
                 </div>
               )}
               {!isLoading && !error && results && (

@@ -223,8 +223,14 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
         ref={videoRef}
         src={videoSrc}
         controls
+        playsInline
+        {...({ 'webkit-playsinline': 'true' } as any)}
+        {...({ 'x-webkit-airplay': 'allow' } as any)}
+        controlsList="nodownload nofullscreen noremoteplayback"
+        disablePictureInPicture
         className="w-full h-auto"
         style={{ display: 'block' }}
+        preload="metadata"
       />
       
       {/* Overlay canvas */}

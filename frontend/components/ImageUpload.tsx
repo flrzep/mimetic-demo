@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, DropzoneOptions } from 'react-dropzone';
 import { ImagePlus, Upload, Trash2, Eye, EyeOff, Camera } from 'lucide-react';
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
@@ -47,14 +47,16 @@ const ImageUpload: React.FC<Props> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
+  const dropzoneOptions: DropzoneOptions = {
     onDrop,
     onDropRejected: onRejected,
     accept: { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] },
     maxSize: MAX_SIZE,
     multiple: false,
     noClick: true,
-  } as const);
+  };
+
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone(dropzoneOptions);
 
   const handleBrowse = () => inputRef.current?.click();
 

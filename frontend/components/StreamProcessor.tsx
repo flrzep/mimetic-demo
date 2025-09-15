@@ -56,7 +56,7 @@ const StreamProcessor: React.FC<Props> = ({ onStart, onStop, isStreaming, onSett
             </div>
             <p className="font-semibold text-sm sm:text-base">Camera Stream</p>
             <p className="text-slate-400 -mt-1 text-xs sm:text-sm max-w-md">
-              Click "Start Camera" to begin real-time video processing
+              Click &quot;Start Camera&quot; to begin real-time video processing
             </p>
           </div>
         )}

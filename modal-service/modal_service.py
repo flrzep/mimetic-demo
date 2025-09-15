@@ -4,8 +4,9 @@ import io
 import os
 import time
 from typing import List
-from PIL import Image
+
 from fastapi import FastAPI
+from PIL import Image
 from pydantic import BaseModel
 
 app = FastAPI(title="Modal GPU Service (Mock)")
@@ -26,4 +27,4 @@ async def health():
 async def predict(req: PredictRequest):
     # Mock decode and return dummy result
     _ = Image.open(io.BytesIO(base64.b64decode(req.image)))
-    return {"success": True, "predictions": [{"class_id": 0, "confidence": 0.95, "label": "mock"}]}
+    return {"success": True, "predictions": [{"class_id": 0, "confidence": 0.95, "label": "mock", "bbox": {"x": 50, "y": 50, "width": 100, "height": 100}}]}

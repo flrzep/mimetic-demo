@@ -1,0 +1,3 @@
+#!/bin/bash
+# VS Code Python interpreter wrapper for Docker container
+docker exec -i memetic-demo-backend-1 python "$@"

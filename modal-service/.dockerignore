@@ -1,0 +1,22 @@
+# Python build and cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+build
+dist
+
+# VCS and OS
+.git
+.gitignore
+.DS_Store
+
+# Env and local config
+.env*
+.venv
+
+# IDE
+.vscode
+.idea

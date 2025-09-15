@@ -1,0 +1,18 @@
+# Global ignores when building from repo root
+.git
+.gitignore
+.DS_Store
+node_modules
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+**/build
+**/dist
+**/.vscode
+**/.idea
+.env*
+**/.env*
+docker-compose.override.yml
+**/.modal_cache
+**/.cache

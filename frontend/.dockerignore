@@ -1,0 +1,16 @@
+# Ignore node modules and build artifacts
+node_modules
+build
+.cache
+
+# VCS and OS
+.git
+.gitignore
+.DS_Store
+
+# Env files
+.env*
+
+# IDE
+.vscode
+.idea

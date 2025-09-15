@@ -1,5 +1,5 @@
 {
-  "name": "cv-app-monorepo",
+  "name": "cv-demo",
   "version": "1.0.0",
   "private": true,
   "workspaces": ["frontend"],
@@ -10,5 +10,6 @@
     "build:frontend": "cd frontend && npm run build",
     "install:frontend": "cd frontend && npm install",
     "start:local": "docker-compose up"
+    
   }
 }

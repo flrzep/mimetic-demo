@@ -1,6 +1,6 @@
-# CV Frontend
+# CV Frontend (Next.js)
 
-A modern React frontend for a computer vision demo that talks to a FastAPI backend.
+A modern Next.js frontend for a computer vision demo that talks to a FastAPI backend.
 
 ## Features
 - Drag & drop image upload (PNG/JPG, 10MB limit) with preview
@@ -12,11 +12,11 @@ A modern React frontend for a computer vision demo that talks to a FastAPI backe
 
 ## Setup
 
-1. Ensure Node.js LTS is installed (v18+ recommended). If you use `nvm`:
+1. Ensure Node.js v22+ is installed. If you use `nvm`:
 
 ```bash
-nvm install --lts
-nvm use --lts
+nvm install 22
+nvm use 22
 ```
 
 2. Install dependencies and start the dev server:
@@ -24,26 +24,28 @@ nvm use --lts
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 ```
 
 3. Backend URL
 
-Create or edit `.env`:
+Create or edit `.env.local`:
 
 ```
-REACT_APP_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
 
-## Build
+## Build & Start
 
 ```bash
 npm run build
+npm start
 ```
 
 ## Deploy to Vercel
 - Root directory: `frontend`
-- Set Environment Variable: `REACT_APP_BACKEND_URL=https://your-backend-service.onrender.com`
+- Framework preset: Next.js
+- Set Environment Variable: `NEXT_PUBLIC_BACKEND_URL=https://your-backend-service.onrender.com`
 - Push to `main` to trigger deployments
 
 ## Notes on Render Free Tier

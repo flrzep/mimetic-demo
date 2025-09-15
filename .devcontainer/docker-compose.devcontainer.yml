@@ -1,0 +1,20 @@
+version: '3.8'
+services:
+  frontend:
+    volumes:
+      - ..:/workspaces/memetic-demo:cached
+    working_dir: /workspaces/memetic-demo/frontend
+    command: npm start
+    environment:
+      - REACT_APP_BACKEND_URL=http://backend:8000
+      - CHOKIDAR_USEPOLLING=true
+  backend:
+    volumes:
+      - ..:/workspaces/memetic-demo:cached
+    working_dir: /workspaces/memetic-demo/backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+  modal:
+    volumes:
+      - ..:/workspaces/memetic-demo:cached
+    working_dir: /workspaces/memetic-demo/modal-service
+    command: uvicorn modal_service:app --host 0.0.0.0 --port 9000 --reload

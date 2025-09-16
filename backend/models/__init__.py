@@ -3,9 +3,6 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 
-class PredictionRequest(BaseModel):
-    image: str  # base64 encoded
-
 class VideoProcessingRequest(BaseModel):
     video_data: str  # base64 encoded video data
     filename: str  # original filename for extension detection
@@ -32,7 +29,6 @@ class PredictionResponse(BaseModel):
     success: bool
     predictions: Optional[List[PredictionResult]] = None
     processing_time: Optional[float] = None
-    image: Optional[str] = None
     error: Optional[str] = None
 
 class VideoFrame(BaseModel):

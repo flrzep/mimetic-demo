@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Timer, Image as ImageIcon, Video, Radio, ChevronDown, Brain } from 'lucide-react';
-import { ImageUpload, VideoUpload, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults } from '../components';
+import { ImageUpload, VideoUpload, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults, VideoDownloader } from '../components';
 import CameraModal from '../components/CameraModal';
 import VideoOverlay from '../components/VideoOverlay';
+import ImageOverlay from '../components/ImageOverlay';
 import { checkHealth, predictImage, predictVideo } from '../utils/api';
 import { supabase } from '../lib/supabase';
 
@@ -91,8 +92,6 @@ export default function Page() {
   }, [isModelDropdownOpen]);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
-  const [processedImageUrl, setProcessedImageUrl] = useState('');
-  const [showProcessedImage, setShowProcessedImage] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<Results>(null);
@@ -124,8 +123,6 @@ export default function Page() {
     
     setFile(null);
     setPreviewUrl('');
-    setProcessedImageUrl('');
-    setShowProcessedImage(false);
     setVideoFile(null);
     setVideoPreviewUrl('');
     setProcessedVideoUrl('');
@@ -228,14 +225,8 @@ export default function Page() {
   const reset = useCallback(() => {
     setResults(null);
     setError('');
-    setProcessedImageUrl('');
-    setShowProcessedImage(false);
     setFile(null);
     setPreviewUrl('');
-  }, []);
-
-  const toggleImageView = useCallback(() => {
-    setShowProcessedImage(prev => !prev);
   }, []);
 
   const canPredict = useMemo(() => !!file && !isLoading, [file, isLoading]);
@@ -261,12 +252,6 @@ export default function Page() {
           const elapsed = (performance.now() - start) / 1000;
           const data = (res as any).data;
           if (!data?.success) throw new Error(data?.message || 'Prediction failed');
-          
-          // Store the processed image if available but don't switch view
-          if (data.image) {
-            const processedUrl = `data:image/jpeg;base64,${data.image}`;
-            setProcessedImageUrl(processedUrl);
-          }
           
           setResults({ predictions: data.predictions || [], processing_time: data.processing_time ?? elapsed });
           lastErr = null; break;
@@ -654,9 +639,6 @@ export default function Page() {
                 setIsDragging={setIsDragging}
                 file={file}
                 previewUrl={previewUrl}
-                processedImageUrl={processedImageUrl}
-                showProcessedImage={showProcessedImage}
-                onToggleImage={() => setShowProcessedImage(!showProcessedImage)}
                 onPredict={predict}
                 canPredict={canPredict}
                 onReset={reset}
@@ -686,18 +668,24 @@ export default function Page() {
               {!isLoading && !error && results && (
                 <PredictionResults results={results} />
               )}
-              {!isLoading && !error && processedImageUrl && (
+              {!isLoading && !error && results && results.predictions && results.predictions.length > 0 && previewUrl && (
                 <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
-                  <h3 className="text-lg font-semibold text-white mb-4">Processed Image with Predictions</h3>
-                  <div className="relative">
-                    <img 
-                      src={processedImageUrl} 
-                      alt="Processed image with predictions overlay" 
-                      className="max-h-96 w-auto max-w-full rounded-xl border border-white/10 object-contain bg-slate-950 mx-auto" 
-                    />
-                    <div className="absolute top-2 right-2">
-                      <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
-                        AI Processed
+                  <h3 className="text-lg font-semibold text-white mb-4">Image with Predictions</h3>
+                  <div className="flex justify-center">
+                    <div className="relative max-w-full">
+                      <ImageOverlay
+                        imageSrc={previewUrl}
+                        predictions={results.predictions}
+                        className="rounded-xl border border-white/10 bg-slate-950"
+                        onError={(error) => {
+                          console.error('ImageOverlay error:', error);
+                          setError(error);
+                        }}
+                      />
+                      <div className="absolute top-2 right-2">
+                        <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
+                          AI Processed
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -760,29 +748,38 @@ export default function Page() {
                     <div className="flex gap-2">
                       <a
                         href={processedVideoUrl}
-                        download="processed-video.mp4"
+                        download="original-video.mp4"
                         className="px-3 py-1.5 rounded-md border border-white/20 hover:bg-white/10 text-sm text-slate-300"
+                        title="Download original video"
                       >
-                        Download Video
+                        Download Original
                       </a>
+                      <VideoDownloader
+                        videoSrc={processedVideoUrl}
+                        frames={videoFrames}
+                        fileName={videoFile?.name?.replace(/\.[^/.]+$/, "_with_boxes.webm") || "processed_video_with_boxes.webm"}
+                        className="inline-block"
+                      />
                     </div>
                   </div>
                   {!hideProcessedVideo ? (
-                    <div className="relative">
-                      <VideoOverlay
-                        videoSrc={processedVideoUrl}
-                        frames={videoFrames}
-                        className="max-h-96 w-auto max-w-full rounded-xl border border-white/10 bg-slate-950 mx-auto"
-                        onError={(error) => {
-                          console.error('VideoOverlay error:', error);
-                          setVideoPlaybackError(true);
-                          setError(error);
-                        }}
-                        onTimeUpdate={(time) => setCurrentVideoTime(time)}
-                      />
-                      <div className="absolute top-2 right-2">
-                        <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
-                          AI Processed
+                    <div className="flex justify-center">
+                      <div className="relative max-w-full">
+                        <VideoOverlay
+                          videoSrc={processedVideoUrl}
+                          frames={videoFrames}
+                          className="rounded-xl border border-white/10 bg-slate-950"
+                          onError={(error) => {
+                            console.error('VideoOverlay error:', error);
+                            setVideoPlaybackError(true);
+                            setError(error);
+                          }}
+                          onTimeUpdate={(time) => setCurrentVideoTime(time)}
+                        />
+                        <div className="absolute top-2 right-2">
+                          <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
+                            AI Processed
+                          </div>
                         </div>
                       </div>
                     </div>

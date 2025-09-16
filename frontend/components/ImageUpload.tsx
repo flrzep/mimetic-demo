@@ -1,6 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import { useDropzone, DropzoneOptions } from 'react-dropzone';
-import { ImagePlus, Upload, Trash2, Eye, EyeOff, Camera } from 'lucide-react';
+import { ImagePlus, Upload, Trash2, Camera } from 'lucide-react';
 import { isMobileDevice } from '../utils/device';
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
@@ -20,9 +20,6 @@ type Props = {
   setIsDragging: (val: boolean) => void;
   file: File | null;
   previewUrl: string;
-  processedImageUrl?: string;
-  showProcessedImage?: boolean;
-  onToggleImage?: () => void;
   onPredict: () => void;
   canPredict: boolean;
   onReset: () => void;
@@ -37,9 +34,6 @@ const ImageUpload: React.FC<Props> = ({
   setIsDragging, 
   file, 
   previewUrl, 
-  processedImageUrl,
-  showProcessedImage,
-  onToggleImage,
   onPredict, 
   canPredict, 
   onReset,
@@ -63,15 +57,16 @@ const ImageUpload: React.FC<Props> = ({
   const handleBrowse = () => inputRef.current?.click();
   
   const handleTakePhoto = () => {
-    // On mobile devices, this will open the native camera app for photo capture
-    cameraInputRef.current?.click();
+    // Use the camera modal instead of native capture for better UX
+    if (onOpenCamera) {
+      onOpenCamera();
+    } else {
+      // Fallback to native camera input if modal not available
+      cameraInputRef.current?.click();
+    }
   };
 
   const isOnMobile = isMobileDevice();
-
-  // Determine which image to show
-  const currentImageUrl = showProcessedImage && processedImageUrl ? processedImageUrl : previewUrl;
-  const hasProcessedImage = !!processedImageUrl;
 
   return (
     <div className="grid gap-3">
@@ -87,7 +82,7 @@ const ImageUpload: React.FC<Props> = ({
       >
         <input {...getInputProps({ 'aria-label': 'Image upload dropzone' })} />
         <div className="grid place-items-center gap-2 text-center min-h-[180px] sm:min-h-[220px]">
-          {!currentImageUrl ? (
+          {!previewUrl ? (
             <>
               <div className="w-12 h-12 sm:w-14 sm:h-14 grid place-items-center text-brand-500 bg-brand-500/20 rounded-full">
                 <ImagePlus className="w-7 h-7 sm:w-9 sm:h-9" />
@@ -118,14 +113,7 @@ const ImageUpload: React.FC<Props> = ({
           ) : (
             <div className="grid gap-2 w-full">
               <div className="relative">
-                <img src={currentImageUrl} alt={file?.name || 'Selected image preview'} className="max-h-72 sm:max-h-96 w-auto max-w-full mx-auto rounded-xl border border-white/10 object-contain bg-slate-950" />
-                {hasProcessedImage && (
-                  <div className="absolute top-2 right-2">
-                    <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
-                      {showProcessedImage ? 'Processed' : 'Original'}
-                    </div>
-                  </div>
-                )}
+                <img src={previewUrl} alt={file?.name || 'Selected image preview'} className="max-h-72 sm:max-h-96 w-auto max-w-full mx-auto rounded-xl border border-white/10 object-contain bg-slate-950" />
               </div>
               <div className="flex justify-between text-slate-400 text-xs sm:text-sm">
                 <p className="truncate max-w-[60%] sm:max-w-[70%]" title={file?.name}>{file?.name}</p>
@@ -141,12 +129,6 @@ const ImageUpload: React.FC<Props> = ({
           <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           <span>Predict</span>
         </button>
-        {hasProcessedImage && onToggleImage && (
-          <button type="button" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/10 hover:bg-white/10 text-sm sm:text-base" onClick={onToggleImage}>
-            {showProcessedImage ? <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-            <span>{showProcessedImage ? 'Show Original' : 'Show Processed'}</span>
-          </button>
-        )}
         
         <button type="button" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/10 hover:bg-white/10 disabled:opacity-60 text-sm sm:text-base" onClick={onReset} disabled={!file}>
           <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />

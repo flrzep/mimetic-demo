@@ -26,9 +26,10 @@ from fastapi import (Depends, FastAPI, File, HTTPException, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, Response
 from jose import jwt
-from models import (BoundingBox, HealthResponse, PredictionRequest,
-                    PredictionResponse, PredictionResult, VideoFrame,
-                    VideoProcessingRequest, VideoProcessingResponse)
+from models import (BoundingBox, HealthResponse, PredictionResponse,
+                    PredictionResult, VideoFrame, VideoProcessingRequest,
+                    VideoProcessingResponse)
+from modal_webrtc import ModalWebRtcPeer, ModalWebRtcSignalingServer
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.websockets import WebSocketState
@@ -213,8 +214,8 @@ async def health():
     )
 
 
-async def forward_to_modal(image_b64: str, video_width: int = 640, video_height: int = 480) -> list[PredictionResult]:
-    """Forward image to Modal API or return mock predictions based on environment"""
+async def predict_with_modal(image_b64: str, image_width: int = 640, image_height: int = 480) -> List[PredictionResult]:
+    """Single unified function to get predictions from Modal API or return mock predictions"""
     
     if USE_MOCK_MODAL:
         # Use mock predictions for development/testing
@@ -228,10 +229,10 @@ async def forward_to_modal(image_b64: str, video_width: int = 640, video_height:
                 confidence=round(random.uniform(0.85, 0.98), 2), 
                 label="person",
                 bbox=BoundingBox(
-                    x=random.randint(50, max(51, video_width // 2)), 
-                    y=random.randint(30, max(31, video_height // 3)), 
-                    width=random.randint(80, min(150, video_width // 4)), 
-                    height=random.randint(150, min(250, video_height // 2))
+                    x=random.randint(50, max(51, image_width // 2)), 
+                    y=random.randint(30, max(31, image_height // 3)), 
+                    width=random.randint(image_width // 4, image_width // 2), 
+                    height=random.randint(image_height // 3, image_height // 2)
                 )
             ),
             PredictionResult(
@@ -239,10 +240,10 @@ async def forward_to_modal(image_b64: str, video_width: int = 640, video_height:
                 confidence=round(random.uniform(0.75, 0.95), 2), 
                 label="car",
                 bbox=BoundingBox(
-                    x=random.randint(video_width // 2, max(video_width // 2 + 1, video_width - 200)), 
-                    y=random.randint(video_height // 3, max(video_height // 3 + 1, video_height // 2)), 
-                    width=random.randint(120, min(200, video_width // 3)), 
-                    height=random.randint(80, min(140, video_height // 3))
+                    x=random.randint(image_width // 2, max(image_width // 2 + 1, image_width - 300)), 
+                    y=random.randint(image_height // 3, max(image_height // 3 + 1, image_height // 2)), 
+                    width=random.randint(image_width // 3, image_width // 2), 
+                    height=random.randint(image_height // 5, image_height // 3)
                 )
             ),
             PredictionResult(
@@ -250,10 +251,10 @@ async def forward_to_modal(image_b64: str, video_width: int = 640, video_height:
                 confidence=round(random.uniform(0.65, 0.88), 2), 
                 label="bicycle",
                 bbox=BoundingBox(
-                    x=random.randint(min(video_width // 4, 21), max(21, video_width // 3)), 
-                    y=random.randint(video_height // 2, max(video_height // 2 + 1, video_height - 180)), 
-                    width=random.randint(60, min(120, video_width // 5)), 
-                    height=random.randint(80, min(160, video_height // 3))
+                    x=random.randint(image_width // 4, max(image_width // 4 + 1, image_width - 200)), 
+                    y=random.randint(image_height // 2, max(image_height // 2 + 1, image_height - 180)), 
+                    width=random.randint(image_width // 5, image_width // 3), 
+                    height=random.randint(image_height // 4, image_height // 3)
                 )
             )
         ]
@@ -311,36 +312,66 @@ async def forward_to_modal(image_b64: str, video_width: int = 640, video_height:
             raise
 
 
-def add_simple_image_annotations(image_data: bytes, predictions: list[PredictionResult]) -> str:
-    """Simple image annotation for image endpoint only (not used for video)"""
-    nparr = np.frombuffer(image_data, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+async def process_video_frames(video_path: str) -> List[VideoFrame]:
+    """Process video frames and return predictions for each frame"""
+    processed_frames = []
     
-    if img is None:
-        raise ValueError("Failed to decode image")
+    logger.info(f"Starting frame processing for video: {video_path}")
     
-    height, width = img.shape[:2]
-
-    for pred in predictions:
-        label = f"{pred.label or f'Class {pred.class_id}'}: {pred.confidence:.2f}"
-        
-        if pred.bbox:
-            # Draw bounding box
-            x = max(0, min(pred.bbox.x, width - 1))
-            y = max(0, min(pred.bbox.y, height - 1))
-            w = max(1, min(pred.bbox.width, width - x))
-            h = max(1, min(pred.bbox.height, height - y))
+    # Get video dimensions
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.error(f"Could not open video file: {video_path}")
+        raise ValueError("Could not open video file")
+    
+    video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
+    frame_count = 0
+    
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            # Process every 10th frame to keep it manageable
+            if frame_count % 10 == 0:
+                timestamp = frame_count / fps
+                
+                # Convert frame to base64
+                _, frame_buffer = cv2.imencode('.jpg', frame)
+                frame_b64 = base64.b64encode(frame_buffer.tobytes()).decode('utf-8')
+                
+                # Get predictions using unified function
+                predictions = await predict_with_modal(frame_b64, video_width, video_height)
+                
+                # Create VideoFrame object
+                video_frame = VideoFrame(
+                    frame_number=frame_count,
+                    timestamp=timestamp,
+                    predictions=predictions
+                )
+                processed_frames.append(video_frame)
             
-            # Draw label
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 2, 2)[0]
-            label_y = max(y - 10, label_size[1] + 5)
-            cv2.rectangle(img, (x, label_y - label_size[1] - 5), (x + label_size[0], label_y + 5), (0, 255, 0), -1)
-            cv2.putText(img, label, (x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            frame_count += 1
+            
+    finally:
+        cap.release()
+    
+    logger.info(f"Processed {len(processed_frames)} frames from {frame_count} total frames")
+    return processed_frames
 
-    _, buf = cv2.imencode('.jpg', img)
-    return base64.b64encode(buf).decode('utf-8')
+
+def cleanup_temp_file(file_path: str):
+    """Clean up temporary file"""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            log_video_processing("Temporary file cleaned up", path=file_path)
+    except Exception as e:
+        logger.warning(f"Failed to cleanup temporary file {file_path}: {e}")
 
 
 async def save_temp_video(video_data: bytes) -> str:
@@ -357,201 +388,6 @@ async def save_temp_video(video_data: bytes) -> str:
     
     log_video_processing("Video saved to temporary file", path=temp_path)
     return temp_path
-
-
-async def collect_processed_frames(video_path: str) -> List[VideoFrame]:
-    """Collect all processed frames from video for batch processing"""
-    processed_frames = []
-    
-    logger.info(f"Starting frame collection from video: {video_path}")
-    
-    # Get actual video dimensions from the file
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Could not open video file: {video_path}")
-        raise ValueError("Could not open video file")
-    
-    video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
-    
-    logger.info(f"Video dimensions: {video_width}x{video_height}")
-    
-    # Create consistent but slightly moving predictions per video
-    # Use video path as seed for reproducible randomness
-    import hashlib
-    video_hash = hashlib.md5(video_path.encode()).hexdigest()
-    base_seed = int(video_hash[:8], 16)
-    
-    # Generate initial positions
-    random.seed(base_seed)
-    
-    # Base positions for each object (consistent per video)
-    base_positions = {
-        'person': {
-            'x': random.randint(50, video_width // 2),
-            'y': random.randint(30, video_height // 3),
-            'width': random.randint(80, 150) * video_width // 640,
-            'height': random.randint(150, 250) * video_height // 480
-        },
-        'car': {
-            'x': random.randint(video_width // 2, video_width - 200),
-            'y': random.randint(video_height // 3, video_height // 2),
-            'width': random.randint(120, 200) * video_width // 640,
-            'height': random.randint(80, 140) * video_height // 480
-        },
-        'bicycle': {
-            'x': random.randint(20, video_width // 3),
-            'y': random.randint(video_height // 2, video_height - 180),
-            'width': random.randint(60, 120) * video_width // 640,
-            'height': random.randint(80, 160) * video_height // 480
-        }
-    }
-    
-    async for frame_num, frame, timestamp in process_video_frames(video_path):
-        # Convert frame to bytes for prediction
-        _, frame_buffer = cv2.imencode('.jpg', frame)
-        frame_bytes = frame_buffer.tobytes()
-        frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
-        
-        # Create slightly moving predictions based on frame number
-        # Small random movement (±5 pixels) from base positions
-        random.seed(base_seed + frame_num)  # Deterministic but different per frame
-
-        range_x = video_width // 100    # Move left/right over time
-        range_y = video_height // 100    # Move up/down over time
-
-        predictions = [
-            PredictionResult(
-                class_id=0,
-                confidence=round(0.90 + random.uniform(-0.05, 0.05), 2),
-                label="person",
-                bbox=BoundingBox(
-                    x=max(0, base_positions['person']['x'] + random.randint(-range_x, range_x)),
-                    y=max(0, base_positions['person']['y'] + random.randint(-range_y, range_y)),
-                    width=base_positions['person']['width'] + random.randint(-3, 3),
-                    height=base_positions['person']['height'] + random.randint(-3, 3)
-                )
-            ),
-            PredictionResult(
-                class_id=1,
-                confidence=round(0.85 + random.uniform(-0.05, 0.05), 2),
-                label="car",
-                bbox=BoundingBox(
-                    x=max(0, base_positions['car']['x'] + random.randint(-range_x, range_x)),
-                    y=max(0, base_positions['car']['y'] + random.randint(-range_y, range_y)),
-                    width=base_positions['car']['width'] + random.randint(-3, 3),
-                    height=base_positions['car']['height'] + random.randint(-3, 3)
-                )
-            ),
-            PredictionResult(
-                class_id=2,
-                confidence=round(0.78 + random.uniform(-0.05, 0.05), 2),
-                label="bicycle",
-                bbox=BoundingBox(
-                    x=max(0, base_positions['bicycle']['x'] + random.randint(-range_x, range_x)),
-                    y=max(0, base_positions['bicycle']['y'] + random.randint(-range_y, range_y)),
-                    width=base_positions['bicycle']['width'] + random.randint(-3, 3),
-                    height=base_positions['bicycle']['height'] + random.randint(-3, 3)
-                )
-            )
-        ]
-        
-        # Create VideoFrame object
-        video_frame = VideoFrame(
-            frame_number=frame_num,
-            timestamp=timestamp,
-            predictions=predictions
-        )
-        processed_frames.append(video_frame)
-    
-    total_predictions = sum(len(frame.predictions) for frame in processed_frames)
-    total_bboxes = sum(sum(1 for p in frame.predictions if p.bbox) for frame in processed_frames)
-    logger.info(f"Collected {len(processed_frames)} frames with {total_predictions} total predictions, {total_bboxes} with bboxes")
-    
-    return processed_frames
-
-def test_codec_availability(fourcc, output_path, fps, frame_size):
-    """Test if a codec is available for video writing"""
-    try:
-        test_writer = cv2.VideoWriter(output_path, fourcc, fps, frame_size)
-        is_opened = test_writer.isOpened()
-        test_writer.release()
-        return is_opened
-    except Exception:
-        return False
-
-def cleanup_temp_file(file_path: str):
-    """Clean up temporary file"""
-    try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            log_video_processing("Temporary file cleaned up", path=file_path)
-    except Exception as e:
-        logger.warning(f"Failed to cleanup temporary file {file_path}: {e}")
-
-
-async def process_video_frames(video_path: str, frame_interval: int = 1, max_frames: Optional[int] = None) -> AsyncGenerator[Tuple[int, np.ndarray, float], None]:
-    """Process video frames and yield frame data"""
-    log_video_processing("Starting video frame processing", 
-                        path=video_path, 
-                        frame_interval=frame_interval, 
-                        max_frames=max_frames)
-    
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Could not open video file: {video_path}")
-        raise ValueError("Could not open video file")
-    
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total_frames / fps if fps > 0 else 0
-    
-    log_video_processing("Video properties detected", 
-                        fps=f"{fps:.2f}", 
-                        total_frames=total_frames, 
-                        duration_sec=f"{duration:.2f}")
-    
-    frame_count = 0
-    processed_count = 0
-    
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Process every nth frame
-            if frame_count % frame_interval == 0:
-                timestamp = frame_count / fps
-                
-                yield frame_count, frame, timestamp
-                processed_count += 1
-                
-                if max_frames and processed_count >= max_frames:
-                    log_video_processing("Reached max frames limit", 
-                                       max_frames=max_frames, 
-                                       processed=processed_count)
-                    break
-            
-            frame_count += 1
-    finally:
-        cap.release()
-        log_video_processing("Frame processing completed", 
-                           total_frames=frame_count, 
-                           processed_frames=processed_count)
-
-
-async def create_output_video(original_path: str, processed_frames: List[VideoFrame], 
-                             video_codec: str = "h264", output_format: str = "mp4") -> str:
-    """Return None - client-side overlay only needs predictions, not video data"""
-    
-    logger.info("Using client-side overlay approach - no video processing needed")
-    logger.info("Frontend will use original video file with Canvas overlay for predictions")
-    
-    # Return empty string since we don't need to send video data back
-    # The frontend already has the original video file
-    return ""
 
 
 @app.post("/predict_video", response_model=VideoProcessingResponse)
@@ -596,13 +432,12 @@ async def predict_video(request: VideoProcessingRequest):
         try:
             logger.info(f"Starting frame processing for video: {temp_input}")
             # Process video frames
-            processed_frames = await collect_processed_frames(temp_input)
+            processed_frames = await process_video_frames(temp_input)
             logger.info(f"Processed {len(processed_frames)} frames")
             
             # Create output video with annotations
-            logger.info(f"Creating output video with codec: {video_codec}, format: {output_format}")
-            output_video_b64 = await create_output_video(temp_input, processed_frames, video_codec, output_format)
-            logger.info(f"Output video created, base64 length: {len(output_video_b64)}")
+            logger.info("Using client-side overlay - no video processing needed")
+            output_video_b64 = ""  # Empty since we use client-side overlays
             
             # Return enhanced response with frame predictions
             response_data = {
@@ -667,7 +502,7 @@ async def video_websocket(websocket: WebSocket):
                     frame_data = base64.b64decode(frame_b64)
                     
                     # Get predictions
-                    predictions = await forward_to_modal(frame_b64)
+                    predictions = await predict_with_modal(frame_b64)
                     
                     # For client-side overlay, only send predictions (no frame processing)
                     processed_frame = None
@@ -732,22 +567,29 @@ async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
             "size_bytes": len(contents)
         })
         
+        # Get original image dimensions BEFORE resizing
+        nparr = np.frombuffer(contents, np.uint8)
+        original_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if original_img is None:
+            raise ValueError("Failed to decode image for dimension detection")
+        original_height, original_width = original_img.shape[:2]
+        
+        logger.info(f"Original image dimensions: {original_width}x{original_height}")
+        
         resized = resize_image_if_needed(contents)
         image_b64 = convert_to_base64(resized)
         
         log_processing_step("Sending image for prediction")
-        preds = await forward_to_modal(image_b64)
         
-        log_processing_step("Adding predictions to image", {"prediction_count": len(preds)})
-        image_response = add_simple_image_annotations(resized, preds)
-
+        # Use original image dimensions for coordinate generation, not resized dimensions
+        preds = await predict_with_modal(image_b64, image_width=original_width, image_height=original_height)
+        
         elapsed = time.perf_counter() - t0
-        resp = PredictionResponse(success=True, predictions=preds, processing_time=elapsed, image=image_response)
+        resp = PredictionResponse(success=True, predictions=preds, processing_time=elapsed)
         
         log_request("/predict", elapsed, True, {
             "predictions": len(preds),
             "filename": file.filename,
-            "output_size_kb": f"{len(image_response)/1024:.1f}"
         })
         return resp
         
@@ -759,18 +601,6 @@ async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
         elapsed = time.perf_counter() - t0
         logger.exception(f"Image prediction failed: {str(e)}")
         log_request("/predict", elapsed, False, {"error": str(e)})
-        return PredictionResponse(success=False, error=str(e), processing_time=elapsed)
-
-
-@app.post("/predict-base64", response_model=PredictionResponse)
-async def predict_base64(req: PredictionRequest, _user=Depends(auth_dep)):
-    t0 = time.perf_counter()
-    try:
-        preds = await forward_to_modal(req.image)
-        elapsed = time.perf_counter() - t0
-        return PredictionResponse(success=True, predictions=preds, processing_time=elapsed)
-    except Exception as e:
-        elapsed = time.perf_counter() - t0
         return PredictionResponse(success=False, error=str(e), processing_time=elapsed)
 
 

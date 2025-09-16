@@ -115,7 +115,8 @@ const VideoUpload: React.FC<Props> = ({
                 {...({ 'x-webkit-airplay': 'allow' } as any)}
                 controlsList="nodownload nofullscreen noremoteplayback"
                 disablePictureInPicture
-                className="max-h-72 sm:max-h-96 w-auto max-w-full mx-auto rounded-xl border border-white/10 bg-slate-950"
+                className="max-h-72 sm:max-h-96 w-auto max-w-full mx-auto rounded-xl border border-white/10 bg-slate-950 object-contain"
+                style={{ aspectRatio: 'auto' }}
                 aria-label={`Video preview: ${file?.name}`}
                 preload="metadata"
               />

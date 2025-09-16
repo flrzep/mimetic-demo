@@ -217,7 +217,7 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
   }, [drawOverlay]);
 
   return (
-    <div className={`relative ${className || ''}`}>
+    <div className={`relative inline-block ${className || ''}`} style={{ maxWidth: '100%' }}>
       {/* Video element */}
       <video
         ref={videoRef}
@@ -228,23 +228,25 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
         {...({ 'x-webkit-airplay': 'allow' } as any)}
         controlsList="nodownload nofullscreen noremoteplayback"
         disablePictureInPicture
-        className="w-full h-auto"
-        style={{ display: 'block' }}
+        className="block w-auto h-auto max-w-full object-contain"
+        style={{ 
+          display: 'block',
+          maxHeight: '80vh', // Use viewport height for better responsiveness
+          aspectRatio: 'auto'
+        }}
         preload="metadata"
       />
       
       {/* Overlay canvas */}
       <canvas
         ref={canvasRef}
-        className="absolute top-0 left-0 w-full h-full pointer-events-none"
+        className="absolute top-0 left-0 pointer-events-none"
         style={{ 
           width: '100%', 
           height: '100%',
           objectFit: 'contain'
         }}
-      />
-      
-      {/* Debug info */}
+      />      {/* Debug info */}
       {process.env.NODE_ENV === 'development' && (
         <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white text-xs p-2 rounded max-w-xs">
           <div>Time: {currentTime.toFixed(1)}s</div>

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: memetic-demo-backend
+    name: mimetic-demo-backend
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -15,6 +15,6 @@ services:
       - key: USE_MOCK_MODAL
         value: "false"
       - key: CORS_ORIGINS
-        value: "https://memetic-demo*.vercel.app"
+        value: "https://mimetic-demo*.vercel.app"
       - key: LOG_LEVEL
         value: info

@@ -6,3 +6,4 @@ export { default as LoadingSpinner } from './LoadingSpinner';
 export { default as ServerStatus } from './ServerStatus';
 export { default as VideoOverlay } from './VideoOverlay';
 export { default as VideoFrameResults } from './VideoFrameResults';
+export { default as VideoDownloader } from './VideoDownloader';

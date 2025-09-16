@@ -12,7 +12,6 @@ export const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export const ENDPOINTS = {
   predict: '/predict',
-  predictBase64: '/predict-base64',
   predictVideo: '/predict_video',
   health: '/health',
   ws: '/ws',

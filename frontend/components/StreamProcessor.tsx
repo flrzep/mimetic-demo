@@ -46,7 +46,8 @@ const StreamProcessor: React.FC<Props> = ({ onStart, onStop, isStreaming, onSett
             autoPlay
             playsInline
             muted
-            className="max-w-full max-h-72 sm:max-h-96 rounded-xl border border-white/10 bg-slate-950"
+            className="max-w-full max-h-72 sm:max-h-96 rounded-xl border border-white/10 bg-slate-950 object-contain"
+            style={{ aspectRatio: 'auto' }}
             aria-label="Live camera stream"
           />
         ) : (

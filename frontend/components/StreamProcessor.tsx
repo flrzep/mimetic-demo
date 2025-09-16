@@ -329,39 +329,3 @@ const StreamProcessor: React.FC<Props> = ({ onStart, onStop, isStreaming, onSett
 };
 
 export default StreamProcessor;
-            <button 
-              type="button" 
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/10 hover:bg-white/10 text-sm sm:text-base" 
-              onClick={stopCamera}
-              aria-label="Stop camera"
-            >
-              <Square className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span>Stop Camera</span>
-            </button>
-          </>
-        )}
-        
-        <button 
-          type="button" 
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/10 hover:bg-white/10 text-sm sm:text-base" 
-          onClick={onSettings}
-          aria-label="Stream settings"
-        >
-          <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span className="sm:inline hidden">Settings</span>
-        </button>
-      </div>
-
-      {isStreaming && (
-        <div className="rounded-lg border border-green-200/30 bg-green-500/10 p-3">
-          <div className="flex items-center gap-2 text-green-100">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-sm">Live processing active</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default StreamProcessor;

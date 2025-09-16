@@ -13,3 +13,4 @@ numpy>=1.26.0
 moviepy>=1.0.3
 imageio-ffmpeg>=0.4.9
 aiofiles>=23.0.0
+modal>=1.1.4

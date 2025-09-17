@@ -6,7 +6,6 @@ import time
 from typing import Dict, List, Optional
 
 import modal
-from pydantic import BaseModel
 
 # Modal app configuration
 app = modal.App("mimetic-demo")
@@ -22,17 +21,6 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install([
     "ultralytics",  # For YOLO models
     "pydantic"
 ])
-
-class PredictionResult(BaseModel):
-    class_id: int
-    confidence: float
-    label: str | None = None
-    bbox: Optional[Dict[str, float]] = None
-
-class PredictRequest(BaseModel):
-    image: str  # base64 encoded image
-    width: Optional[int] = 640
-    height: Optional[int] = 480
 
 @app.function(
     image=image,
@@ -83,6 +71,19 @@ def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
 # Create FastAPI app inside function to avoid import issues
 def create_web_app():
     from fastapi import FastAPI
+    from pydantic import BaseModel
+
+    # Define Pydantic models inside function
+    class PredictionResult(BaseModel):
+        class_id: int
+        confidence: float
+        label: str | None = None
+        bbox: Optional[Dict[str, float]] = None
+
+    class PredictRequest(BaseModel):
+        image: str  # base64 encoded image
+        width: Optional[int] = 640
+        height: Optional[int] = 480
     
     web_app = FastAPI(title="Modal CV Service")
 

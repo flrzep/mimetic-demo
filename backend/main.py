@@ -29,7 +29,6 @@ from jose import jwt
 from models import (BoundingBox, HealthResponse, PredictionResponse,
                     PredictionResult, VideoFrame, VideoProcessingRequest,
                     VideoProcessingResponse)
-from modal_webrtc import ModalWebRtcPeer, ModalWebRtcSignalingServer
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.websockets import WebSocketState
@@ -602,6 +601,116 @@ async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
         logger.exception(f"Image prediction failed: {str(e)}")
         log_request("/predict", elapsed, False, {"error": str(e)})
         return PredictionResponse(success=False, error=str(e), processing_time=elapsed)
+
+
+@app.get("/stream")
+async def get_stream_interface():
+    """Serve the streaming interface - redirects to Modal WebRTC service"""
+    if USE_MOCK_MODAL:
+        # Return mock streaming interface for development
+        return {
+            "message": "Mock WebRTC streaming server ready", 
+            "websocket_url": "/stream/ws/{client_id}",
+            "mode": "mock"
+        }
+    
+    if not MODAL_ENDPOINT_URL:
+        raise HTTPException(status_code=503, detail="Modal service not configured")
+    
+    return {
+        "message": "Modal WebRTC streaming server ready", 
+        "websocket_url": f"{MODAL_ENDPOINT_URL}/ws/{{client_id}}",
+        "mode": "production"
+    }
+
+
+@app.websocket("/stream/ws/{client_id}")
+async def websocket_stream_endpoint(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for WebRTC signaling - proxies to Modal or provides mock"""
+    await websocket.accept()
+    
+    if USE_MOCK_MODAL:
+        # Mock WebRTC signaling for development
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "identified",
+                "peer_id": f"mock-peer-{client_id[:8]}"
+            }))
+            
+            # Mock message handling loop
+            while True:
+                try:
+                    data = await websocket.receive_text()
+                    message = json.loads(data)
+                    msg_type = message.get("type")
+                    
+                    if msg_type == "offer":
+                        # Mock WebRTC answer
+                        await websocket.send_text(json.dumps({
+                            "type": "answer",
+                            "sdp": "mock-sdp-answer",
+                            "peer_id": f"mock-peer-{client_id[:8]}"
+                        }))
+                    elif msg_type == "identify":
+                        await websocket.send_text(json.dumps({
+                            "type": "identified", 
+                            "peer_id": f"mock-peer-{client_id[:8]}"
+                        }))
+                    
+                except WebSocketDisconnect:
+                    break
+                except Exception as e:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "error": str(e)
+                    }))
+                    
+        except Exception as e:
+            logger.error(f"Mock WebSocket error: {e}")
+        finally:
+            try:
+                await websocket.close()
+            except:
+                pass
+    else:
+        # Proxy to Modal WebRTC service in production
+        if not MODAL_ENDPOINT_URL:
+            await websocket.close(code=1011, reason="Modal service not configured")
+            return
+            
+        try:
+            # Connect to Modal WebRTC service
+            import websockets
+            
+            modal_ws_url = f"{MODAL_ENDPOINT_URL}/ws/{client_id}".replace("http://", "ws://").replace("https://", "wss://")
+            
+            async with websockets.connect(modal_ws_url) as modal_ws:
+                # Proxy messages between client and Modal WebRTC service
+                async def client_to_modal():
+                    try:
+                        while True:
+                            data = await websocket.receive_text()
+                            await modal_ws.send(data)
+                    except WebSocketDisconnect:
+                        pass
+                
+                async def modal_to_client():
+                    try:
+                        async for message in modal_ws:
+                            await websocket.send_text(message)
+                    except:
+                        pass
+                
+                # Run both proxy directions concurrently
+                await asyncio.gather(
+                    client_to_modal(),
+                    modal_to_client(),
+                    return_exceptions=True
+                )
+                
+        except Exception as e:
+            logger.error(f"Modal WebRTC proxy error: {e}")
+            await websocket.close(code=1011, reason="Failed to connect to Modal WebRTC service")
 
 
 @app.websocket("/ws")

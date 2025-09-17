@@ -1,0 +1,144 @@
+name: Deploy Modal Services
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modal-service/**'
+      - '.github/workflows/deploy-modal.yml'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  deploy:
+    name: Deploy to Modal
+    runs-on: ubuntu-latest
+    environment: production  # Use production environment
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Modal CLI
+        run: |
+          pip install modal
+
+      - name: Authenticate with Modal
+        run: |
+          modal token set --token-id ${{ secrets.MODAL_TOKEN_ID }} --token-secret ${{ secrets.MODAL_TOKEN_SECRET }}
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+      - name: Validate Modal service
+        run: |
+          cd modal-service
+          modal app validate modal_service.py
+
+      - name: Deploy main service
+        run: |
+          cd modal-service
+          modal deploy modal_service.py
+
+      - name: Get deployment URL
+        id: url
+        run: |
+          cd modal-service
+          echo "Getting deployment URL..."
+          
+          # Get main service URL
+          MAIN_URL=$(modal app list --json | jq -r '.[] | select(.name=="mimetic-demo") | .web_url // empty')
+          if [ -n "$MAIN_URL" ]; then
+            echo "main_url=$MAIN_URL" >> $GITHUB_OUTPUT
+            echo "Main service deployed at: $MAIN_URL"
+          else
+            echo "Could not get main service URL"
+          fi
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Modal Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Service:" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
+            echo "- **Modal Service**: ${{ steps.url.outputs.main_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "  - Health: ${{ steps.url.outputs.main_url }}/health" >> $GITHUB_STEP_SUMMARY
+            echo "  - Predict: ${{ steps.url.outputs.main_url }}/predict" >> $GITHUB_STEP_SUMMARY
+            echo "  - WebSocket: ${{ steps.url.outputs.main_url }}/ws/{{client_id}}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Update Render Environment Variables:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`env" >> $GITHUB_STEP_SUMMARY
+          echo "USE_MOCK_MODAL=false" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
+            echo "MODAL_ENDPOINT_URL=${{ steps.url.outputs.main_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Endpoints:" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
+            echo "- Health Check: \`curl ${{ steps.url.outputs.main_url }}/health\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on commit
+        uses: actions/github-script@v6
+        if: steps.urls.outputs.main_url != ''
+        with:
+          script: |
+            const { repo, owner } = context.repo;
+            const { sha } = context;
+            
+            let body = '## 🚀 Modal Deployment Complete\n\n';
+            body += '### Deployed Services:\n';
+            
+            if ('${{ steps.urls.outputs.main_url }}') {
+              body += '- **Main Service**: ${{ steps.urls.outputs.main_url }}\n';
+              body += '  - Health: ${{ steps.urls.outputs.main_url }}/health\n';
+              body += '  - Predict: ${{ steps.urls.outputs.main_url }}/predict\n';
+            }
+            
+            if ('${{ steps.urls.outputs.webrtc_url }}') {
+              body += '- **WebRTC Service**: ${{ steps.urls.outputs.webrtc_url }}\n';
+            }
+            
+            body += '\n### Environment Variables:\n```env\n';
+            body += 'USE_MOCK_MODAL=false\n';
+            
+            if ('${{ steps.urls.outputs.main_url }}') {
+              body += 'MODAL_ENDPOINT_URL=${{ steps.urls.outputs.main_url }}\n';
+            }
+            
+            if ('${{ steps.urls.outputs.webrtc_url }}') {
+              body += 'MODAL_WEBRTC_URL=${{ steps.urls.outputs.webrtc_url }}\n';
+            }
+            
+            body += '```';
+            
+            await github.rest.repos.createCommitComment({
+              owner,
+              repo,
+              commit_sha: sha,
+              body
+            });
+
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: failure()
+    
+    steps:
+      - name: Deployment Failed
+        run: |
+          echo "❌ Modal deployment failed!"
+          echo "Check the logs above for details."
+          exit 1

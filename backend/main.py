@@ -49,13 +49,15 @@ MODAL_ENDPOINT_URL = os.getenv("MODAL_ENDPOINT_URL", "")
 MODAL_API_KEY = os.getenv("MODAL_API_KEY", "")
 
 # Dynamic CORS based on environment
-DEFAULT_CORS = "https://memetic-demo-*.vercel.app" if IS_PRODUCTION else "http://localhost:3000"
+DEFAULT_CORS = "https://mimetic-demo*.vercel.app,http://localhost:3000" if IS_PRODUCTION else "http://localhost:3000"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", DEFAULT_CORS).split(",")
 
 def is_cors_allowed(origin: str, allowed_patterns: List[str]) -> bool:
     """Check if an origin matches any of the allowed CORS patterns (supports wildcards)"""
     if not origin:
         return False
+    
+    logger.debug(f"Checking CORS for origin: {origin} against patterns: {allowed_patterns}")
     
     for pattern in allowed_patterns:
         pattern = pattern.strip()
@@ -64,6 +66,7 @@ def is_cors_allowed(origin: str, allowed_patterns: List[str]) -> bool:
             
         # Exact match
         if origin == pattern:
+            logger.debug(f"CORS allowed: exact match with {pattern}")
             return True
             
         # Wildcard pattern matching for Vercel URLs
@@ -71,8 +74,10 @@ def is_cors_allowed(origin: str, allowed_patterns: List[str]) -> bool:
             # Convert wildcard pattern to regex
             regex_pattern = re.escape(pattern).replace(r'\*', '.*')
             if re.fullmatch(regex_pattern, origin):
+                logger.debug(f"CORS allowed: wildcard match {pattern} -> {regex_pattern}")
                 return True
     
+    logger.warning(f"CORS blocked for origin: {origin}")
     return False
 
 # Process CORS origins to support dynamic validation

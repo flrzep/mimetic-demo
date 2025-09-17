@@ -29,10 +29,12 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install([
     timeout=3600
 )
 def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:
-    """
+    
+    '''
     Run inference on a single image
     Replace this with your actual model inference
-    """
+    '''
+
     try:
         # Import inside function to avoid Modal deployment issues
         from PIL import Image
@@ -92,7 +94,7 @@ def create_web_app():
     web_app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-                    "https://mimetic-demo*.vercel.app",
+                    "https://mimetic-demo*",
                     "http://localhost:3000",  # for development
                 ],
         allow_credentials=True,

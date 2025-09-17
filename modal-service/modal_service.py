@@ -6,8 +6,6 @@ import time
 from typing import Dict, List, Optional
 
 import modal
-from fastapi import FastAPI
-from PIL import Image
 from pydantic import BaseModel
 
 # Modal app configuration
@@ -48,6 +46,9 @@ def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
     Replace this with your actual model inference
     """
     try:
+        # Import inside function to avoid Modal deployment issues
+        from PIL import Image
+
         # Decode base64 image
         image_bytes = base64.b64decode(image_b64)
         image = Image.open(io.BytesIO(image_bytes))
@@ -79,28 +80,33 @@ def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
         print(f"Error processing image: {e}")
         return []
 
-# FastAPI app for HTTP endpoints
-web_app = FastAPI(title="Modal CV Service")
+# Create FastAPI app inside function to avoid import issues
+def create_web_app():
+    from fastapi import FastAPI
+    
+    web_app = FastAPI(title="Modal CV Service")
 
-@web_app.get("/health")
-async def health_http():
-    """HTTP health check"""
-    return {"status": "ok", "model": "yolo", "gpu": True}
+    @web_app.get("/health")
+    async def health_http():
+        """HTTP health check"""
+        return {"status": "ok", "model": "yolo", "gpu": True}
 
-@web_app.post("/predict")
-async def predict_http(req: PredictRequest):
-    """HTTP prediction endpoint"""
-    try:
-        predictions = predict_image.remote(req.image, req.width or 640, req.height or 480)
-        return {"success": True, "predictions": predictions}
-    except Exception as e:
-        return {"success": False, "error": str(e), "predictions": []}
+    @web_app.post("/predict")
+    async def predict_http(req: PredictRequest):
+        """HTTP prediction endpoint"""
+        try:
+            predictions = predict_image.remote(req.image, req.width or 640, req.height or 480)
+            return {"success": True, "predictions": predictions}
+        except Exception as e:
+            return {"success": False, "error": str(e), "predictions": []}
+    
+    return web_app
 
 @app.function(image=image)
 @modal.asgi_app()
 def web():
     """Expose the FastAPI app as a Modal ASGI app"""
-    return web_app
+    return create_web_app()
 
 if __name__ == "__main__":
     # For local development

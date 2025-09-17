@@ -11,7 +11,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 # Modal app configuration
-app = modal.App("cv-inference")
+app = modal.App("mimetic-demo")
 
 # Define the Modal image with required dependencies
 image = modal.Image.debian_slim(python_version="3.11").pip_install([
@@ -38,20 +38,8 @@ class PredictRequest(BaseModel):
 
 @app.function(
     image=image,
-    gpu="any",  # Use GPU for inference
-    container_idle_timeout=300,
-    timeout=3600,
-    concurrency_limit=10
-)
-@modal.web_endpoint(method="GET", label="cv-health")
-def health():
-    """Health check endpoint"""
-    return {"status": "ok", "model": "yolo", "gpu": True}
-
-@app.function(
-    image=image,
     gpu="any",
-    container_idle_timeout=300,
+    scaledown_window=300,
     timeout=3600
 )
 def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:

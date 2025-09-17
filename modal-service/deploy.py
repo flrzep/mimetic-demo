@@ -4,12 +4,13 @@ Deployment script for Modal services
 Run this to deploy both CV inference and WebRTC streaming to Modal
 """
 
+import os
 import subprocess
 import sys
-import os
 from pathlib import Path
 
-def run_command(cmd: str, cwd: str = None) -> bool:
+
+def run_command(cmd: str, cwd: str) -> bool:
     """Run a command and return success status"""
     try:
         print(f"Running: {cmd}")

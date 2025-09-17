@@ -46,7 +46,7 @@ class StreamFrame(BaseModel):
 @app.function(
     image=image,
     gpu="any",  # Use GPU for inference
-    container_idle_timeout=300,
+    scaledown_window=300,
     timeout=3600,
     concurrency_limit=10
 )
@@ -58,7 +58,7 @@ def health():
 @app.function(
     image=image,
     gpu="any",
-    container_idle_timeout=300,
+    scaledown_window=300,
     timeout=3600,
     concurrency_limit=10
 )
@@ -96,7 +96,7 @@ def predict_frame(frame_data: str, width: int = 640, height: int = 480) -> List[
 @app.function(
     image=image,
     gpu="any",
-    container_idle_timeout=300,
+    scaledown_window=300,
     timeout=3600,
     concurrency_limit=5
 )
@@ -257,7 +257,7 @@ class ModalWebRtcPeer:
 
 @app.function(
     image=image,
-    container_idle_timeout=300,
+    scaledown_window=300,
     timeout=3600,
     concurrency_limit=10
 )

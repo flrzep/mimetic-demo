@@ -47,7 +47,6 @@ USE_MOCK_MODAL = os.getenv("USE_MOCK_MODAL", "true" if not IS_PRODUCTION else "f
 APP_NAME = os.getenv("APP_NAME", "CV Backend")
 MODAL_ENDPOINT_URL = os.getenv("MODAL_ENDPOINT_URL", "")
 MODAL_API_KEY = os.getenv("MODAL_API_KEY", "")
-MODAL_WEBRTC_URL = os.getenv("MODAL_WEBRTC_URL", "")  # Modal WebRTC service URL
 
 # Dynamic CORS based on environment
 DEFAULT_CORS = "https://memetic-demo-*.vercel.app" if IS_PRODUCTION else "http://localhost:3000"
@@ -615,12 +614,12 @@ async def get_stream_interface():
             "mode": "mock"
         }
     
-    if not MODAL_WEBRTC_URL:
-        raise HTTPException(status_code=503, detail="Modal WebRTC service not configured")
+    if not MODAL_ENDPOINT_URL:
+        raise HTTPException(status_code=503, detail="Modal service not configured")
     
     return {
         "message": "Modal WebRTC streaming server ready", 
-        "websocket_url": f"{MODAL_WEBRTC_URL}/ws/{{client_id}}",
+        "websocket_url": f"{MODAL_ENDPOINT_URL}/ws/{{client_id}}",
         "mode": "production"
     }
 
@@ -675,15 +674,15 @@ async def websocket_stream_endpoint(websocket: WebSocket, client_id: str):
                 pass
     else:
         # Proxy to Modal WebRTC service in production
-        if not MODAL_WEBRTC_URL:
-            await websocket.close(code=1011, reason="Modal WebRTC service not configured")
+        if not MODAL_ENDPOINT_URL:
+            await websocket.close(code=1011, reason="Modal service not configured")
             return
             
         try:
             # Connect to Modal WebRTC service
             import websockets
             
-            modal_ws_url = f"{MODAL_WEBRTC_URL}/ws/{client_id}".replace("http://", "ws://").replace("https://", "wss://")
+            modal_ws_url = f"{MODAL_ENDPOINT_URL}/ws/{client_id}".replace("http://", "ws://").replace("https://", "wss://")
             
             async with websockets.connect(modal_ws_url) as modal_ws:
                 # Proxy messages between client and Modal WebRTC service

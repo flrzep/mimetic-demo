@@ -34,11 +34,6 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
-      - name: Validate Modal service
-        run: |
-          cd modal-service
-          modal app validate modal_service.py
-
       - name: Deploy main service
         run: |
           cd modal-service

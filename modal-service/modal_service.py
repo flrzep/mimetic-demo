@@ -94,9 +94,9 @@ def create_web_app():
     web_app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-                    "https://mimetic-demo*",
-                    "http://localhost:3000",  # for development
-                ],
+            "https://mimetic-demo*",
+            "http://localhost:3000",  # for development
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

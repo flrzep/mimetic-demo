@@ -63,11 +63,8 @@ const VideoUpload: React.FC<Props> = ({
       cameraInputRef.current?.click();
     } else {
       // Open the modal if not on mobile
-      if (onOpenCamera) {
-        onOpenCamera();
-      }
-      // Fallback to native camera input if modal not available
-      cameraInputRef.current?.click();
+
+      onOpenCamera();
   
     }
   };

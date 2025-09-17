@@ -46,10 +46,18 @@ USE_MOCK_MODAL = os.getenv("USE_MOCK_MODAL", "true" if not IS_PRODUCTION else "f
 
 APP_NAME = os.getenv("APP_NAME", "CV Backend")
 MODAL_ENDPOINT_URL = os.getenv("MODAL_ENDPOINT_URL", "")
-MODAL_API_KEY = os.getenv("MODAL_API_KEY", "")
+MODAL_TOKEN_ID = os.getenv("MODAL_TOKEN_ID", "")
+MODAL_TOKEN_SECRET = os.getenv("MODAL_TOKEN_SECRET", "")
+
+# Debug: Log what we're getting from environment
+logger.info(f"MODAL_ENDPOINT_URL from env: {MODAL_ENDPOINT_URL}")
+logger.info(f"MODAL_TOKEN_ID configured: {bool(MODAL_TOKEN_ID)}")
+logger.info(f"MODAL_TOKEN_SECRET configured: {bool(MODAL_TOKEN_SECRET)}")
+if DEBUG_MODE:
+    logger.info(f"Environment variables loaded: {list(os.environ.keys())}")
 
 # Dynamic CORS based on environment
-DEFAULT_CORS = "https://mimetic-demo*.vercel.app,http://localhost:3000" if IS_PRODUCTION else "http://localhost:3000"
+DEFAULT_CORS = "https://mimetic-demo*,http://localhost:3000" if IS_PRODUCTION else "http://localhost:3000"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", DEFAULT_CORS).split(",")
 
 def is_cors_allowed(origin: str, allowed_patterns: List[str]) -> bool:
@@ -274,16 +282,15 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
     else:
         # Use real Modal API for production
         logger.info("Calling real Modal API")
-        if not MODAL_ENDPOINT_URL or not MODAL_API_KEY:
-            logger.error("Modal API credentials not configured for production")
+        if not MODAL_ENDPOINT_URL:
+            logger.error("Modal endpoint URL not configured for production")
             raise ValueError("Modal API not configured")
         
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/predict",
-                    json={"image": image_b64},
-                    headers={"Authorization": f"Bearer {MODAL_API_KEY}"}
+                    json={"image": image_b64, "width": image_width, "height": image_height}
                 )
                 response.raise_for_status()
                 

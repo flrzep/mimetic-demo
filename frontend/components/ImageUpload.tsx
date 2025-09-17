@@ -56,18 +56,25 @@ const ImageUpload: React.FC<Props> = ({
 
   const handleBrowse = () => inputRef.current?.click();
   
-  const handleTakePhoto = () => {
-    // Use the camera modal instead of native capture for better UX
-    if (onOpenCamera) {
-      onOpenCamera();
-    } else {
-      // Fallback to native camera input if modal not available
-      cameraInputRef.current?.click();
-    }
-  };
 
   const isOnMobile = isMobileDevice();
 
+  const handleTakePhoto = () => {
+    // Use the camera modal instead of native capture for better UX
+    if (isOnMobile) {
+      cameraInputRef.current?.click();
+    } else {
+      // Open the modal if not on mobile
+      if (onOpenCamera) {
+        onOpenCamera();
+      }
+      // Fallback to native camera input if modal not available
+      cameraInputRef.current?.click();
+  
+    }
+  };
+
+  
   return (
     <div className="grid gap-3">
 

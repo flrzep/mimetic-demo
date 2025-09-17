@@ -55,12 +55,23 @@ const VideoUpload: React.FC<Props> = ({
 
   const handleBrowse = () => inputRef.current?.click();
   
-  const handleRecordVideo = () => {
-    // On mobile devices, this will open the native camera app for video recording
-    cameraInputRef.current?.click();
-  };
-
   const isOnMobile = isMobileDevice();
+
+  const handleRecordVideo = () => {
+    // Use the camera modal instead of native capture for better UX
+    if (isOnMobile) {
+      cameraInputRef.current?.click();
+    } else {
+      // Open the modal if not on mobile
+      if (onOpenCamera) {
+        onOpenCamera();
+      }
+      // Fallback to native camera input if modal not available
+      cameraInputRef.current?.click();
+  
+    }
+  };
+  
 
   return (
     <div className="grid gap-3">

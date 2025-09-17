@@ -2,6 +2,8 @@ import axios from 'axios';
 import { API_BASE_URL, ENDPOINTS, REQUEST_TIMEOUT, WS_RECONNECT_INTERVAL } from '../config';
 import { supabase } from '../lib/supabase';
 
+const REQUIRE_AUTH = process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true';
+
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: REQUEST_TIMEOUT,
@@ -18,16 +20,18 @@ api.interceptors.response.use(
   }
 );
 
-// Inject Supabase auth token if available
+// Inject Supabase auth token if available and required
 api.interceptors.request.use(async (config) => {
-  try {
-    const { data } = await supabase.auth.getSession();
-    const accessToken = data?.session?.access_token;
-    if (accessToken) {
-      config.headers = config.headers || {};
-      config.headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-  } catch {}
+  if (REQUIRE_AUTH && supabase) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data?.session?.access_token;
+      if (accessToken) {
+        config.headers = config.headers || {};
+        config.headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+    } catch {}
+  }
   return config;
 });
 

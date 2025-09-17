@@ -107,6 +107,7 @@ MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(10 * 1024 * 1024)))
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "60"))
 SUPABASE_PROJECT_ID = os.getenv("SUPABASE_PROJECT_ID", "").strip()
 SUPABASE_JWKS_URL = f"https://{SUPABASE_PROJECT_ID}.supabase.co/auth/v1/keys" if SUPABASE_PROJECT_ID else ""
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").lower() == "true"
 _jwks_cache = TTLCache(maxsize=1, ttl=3600)
 
 # Log environment info
@@ -114,6 +115,7 @@ logger.info(f"Environment: {'Production' if IS_PRODUCTION else 'Development'}")
 logger.info(f"Debug mode: {DEBUG_MODE}")
 logger.info(f"Use mock Modal: {USE_MOCK_MODAL}")
 logger.info(f"CORS patterns: {CORS_PATTERNS}")
+logger.info(f"Authentication required: {REQUIRE_AUTH}")
 
 app = FastAPI(title=APP_NAME, default_response_class=ORJSONResponse)
 
@@ -134,6 +136,10 @@ async def get_jwks():
       return jwks
 
 async def verify_bearer(token: Optional[str] = None):
+    # If authentication is not required, allow anonymous access
+    if not REQUIRE_AUTH:
+        return None
+    
     if not SUPABASE_JWKS_URL:
         return None  # allow anonymous if not configured
     if not token:

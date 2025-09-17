@@ -10,6 +10,8 @@ import ImageOverlay from '../components/ImageOverlay';
 import { checkHealth, predictImage, predictVideo } from '../utils/api';
 import { supabase } from '../lib/supabase';
 
+const REQUIRE_AUTH = process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true';
+
 type Prediction = { class_id: number; confidence: number; label?: string };
 type Results = { 
   predictions: Prediction[]; 
@@ -134,7 +136,7 @@ export default function Page() {
   };
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!REQUIRE_AUTH || !supabase) return;
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => mounted && setUser(data?.user || null));
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -496,13 +498,15 @@ export default function Page() {
             </div>
             
             {/* Sign In/Out Button */}
-            <div className="self-end sm:self-auto">
-              {user ? (
-                <button className="px-3 py-1.5 rounded-md border border-white/10 hover:bg-white/10 text-sm" onClick={signOut} aria-label="Sign out">Sign out</button>
-              ) : (
-                <button className="px-3 py-1.5 rounded-md bg-brand-500 hover:bg-brand-600 text-white text-sm" onClick={signInWithEmail} aria-label="Sign in">Sign in</button>
-              )}
-            </div>
+            {REQUIRE_AUTH && (
+              <div className="self-end sm:self-auto">
+                {user ? (
+                  <button className="px-3 py-1.5 rounded-md border border-white/10 hover:bg-white/10 text-sm" onClick={signOut} aria-label="Sign out">Sign out</button>
+                ) : (
+                  <button className="px-3 py-1.5 rounded-md bg-brand-500 hover:bg-brand-600 text-white text-sm" onClick={signInWithEmail} aria-label="Sign in">Sign in</button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>

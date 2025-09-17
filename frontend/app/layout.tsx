@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Computer Vision Demo',
-  description: 'Upload an image to get AI predictions',
+  title: 'Mimetic Demo',
+  description: 'Test our Computer Vision Models',
   viewport: 'width=device-width, initial-scale=1',
   icons: {
     icon: '/logo-white-fade.png',

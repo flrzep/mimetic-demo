@@ -71,6 +71,7 @@ def predict_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
 # Create FastAPI app inside function to avoid import issues
 def create_web_app():
     from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
     # Define Pydantic models inside function
@@ -86,6 +87,18 @@ def create_web_app():
         height: Optional[int] = 480
     
     web_app = FastAPI(title="Modal CV Service")
+    
+    # Add CORS middleware to handle OPTIONS requests
+    web_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+                    "https://mimetic-demo*.vercel.app",
+                    "http://localhost:3000",  # for development
+                ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @web_app.get("/health")
     async def health_http():

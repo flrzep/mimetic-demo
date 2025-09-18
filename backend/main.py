@@ -329,56 +329,111 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
             raise
 
 
-async def process_video_frames(video_path: str) -> List[VideoFrame]:
-    """Process video frames and return predictions for each frame"""
-    processed_frames = []
+async def process_video_with_modal(video_b64: str, frame_skip: int = 10) -> List[VideoFrame]:
+    """Process entire video using Modal API and return structured VideoFrame data"""
     
-    logger.info(f"Starting frame processing for video: {video_path}")
-    
-    # Get video dimensions
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Could not open video file: {video_path}")
-        raise ValueError("Could not open video file")
-    
-    video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    
-    frame_count = 0
-    
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+    if USE_MOCK_MODAL:
+        # Use mock video processing for development/testing
+        logger.info("Using mock Modal video processing")
+        await asyncio.sleep(1.0)  # Simulate longer processing time for video
+        
+        # Generate mock video frames 
+        mock_frames = []
+        for i in range(0, 100, frame_skip):  # Mock 100 frames total
+            timestamp = i * 0.033  # ~30fps
             
-            # Process every 10th frame to keep it manageable
-            if frame_count % 10 == 0:
-                timestamp = frame_count / fps
-                
-                # Convert frame to base64
-                _, frame_buffer = cv2.imencode('.jpg', frame)
-                frame_b64 = base64.b64encode(frame_buffer.tobytes()).decode('utf-8')
-                
-                # Get predictions using unified function
-                predictions = await predict_with_modal(frame_b64, video_width, video_height)
-                
-                # Create VideoFrame object
-                video_frame = VideoFrame(
-                    frame_number=frame_count,
-                    timestamp=timestamp,
-                    predictions=predictions
+            # Generate random predictions for this frame
+            mock_predictions = [
+                PredictionResult(
+                    class_id=0,
+                    confidence=round(random.uniform(0.85, 0.98), 2),
+                    label="person",
+                    bbox=BoundingBox(
+                        x=random.randint(50, 320),
+                        y=random.randint(30, 160),
+                        width=random.randint(160, 320),
+                        height=random.randint(160, 240)
+                    )
+                ),
+                PredictionResult(
+                    class_id=1,
+                    confidence=round(random.uniform(0.75, 0.95), 2),
+                    label="car",
+                    bbox=BoundingBox(
+                        x=random.randint(320, 540),
+                        y=random.randint(160, 240),
+                        width=random.randint(200, 320),
+                        height=random.randint(100, 160)
+                    )
                 )
-                processed_frames.append(video_frame)
+            ]
             
-            frame_count += 1
-            
-    finally:
-        cap.release()
+            mock_frames.append(VideoFrame(
+                frame_number=i,
+                timestamp=timestamp,
+                predictions=mock_predictions
+            ))
+        
+        logger.info(f"Generated {len(mock_frames)} mock video frames")
+        return mock_frames
     
-    logger.info(f"Processed {len(processed_frames)} frames from {frame_count} total frames")
-    return processed_frames
+    else:
+        # Use real Modal API for production
+        logger.info("Calling real Modal video processing API")
+        if not MODAL_ENDPOINT_URL:
+            logger.error("Modal endpoint URL not configured for production")
+            raise ValueError("Modal API not configured")
+        
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT * 3) as client:  # Longer timeout for video
+                response = await client.post(
+                    f"{MODAL_ENDPOINT_URL}/process_video",
+                    json={"video": video_b64, "frame_skip": frame_skip}
+                )
+                response.raise_for_status()
+                
+                # Parse Modal API response to VideoFrame objects
+                modal_data = response.json()
+                video_frames = []
+                
+                for frame_data in modal_data.get("frames", []):
+                    # Convert predictions to PredictionResult objects
+                    predictions = []
+                    for pred in frame_data.get("predictions", []):
+                        bbox = None
+                        if pred.get("bbox"):
+                            bbox = BoundingBox(
+                                x=pred["bbox"]["x"],
+                                y=pred["bbox"]["y"],
+                                width=pred["bbox"]["width"],
+                                height=pred["bbox"]["height"]
+                            )
+                        
+                        predictions.append(PredictionResult(
+                            class_id=pred["class_id"],
+                            confidence=pred["confidence"],
+                            label=pred.get("label"),
+                            bbox=bbox
+                        ))
+                    
+                    video_frames.append(VideoFrame(
+                        frame_number=frame_data["frame_number"],
+                        timestamp=frame_data["timestamp"],
+                        predictions=predictions
+                    ))
+                
+                logger.info(f"Received {len(video_frames)} processed frames from Modal API")
+                return video_frames
+                
+        except httpx.TimeoutException:
+            logger.error("Modal video processing API request timed out")
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Modal video processing API returned error: {e.response.status_code}")
+            raise
+        except Exception as e:
+            logger.error(f"Modal video processing API request failed: {str(e)}")
+            raise
 
 
 def cleanup_temp_file(file_path: str):
@@ -409,7 +464,7 @@ async def save_temp_video(video_data: bytes) -> str:
 
 @app.post("/predict_video", response_model=VideoProcessingResponse)
 async def predict_video(request: VideoProcessingRequest):
-    """Process video with ML model and return annotated video"""
+    """Process video with ML model using efficient Modal batch processing"""
     try:
         logger.info(f"Starting video processing for file: {request.filename}")
         logger.info(f"Video data length: {len(request.video_data)} characters")
@@ -418,17 +473,11 @@ async def predict_video(request: VideoProcessingRequest):
         # Set default codec if not provided
         video_codec = request.video_codec or "h264"
         
-        # Decode video data
-        video_data = base64.b64decode(request.video_data)
-        
-        # Create temporary input file with appropriate extension
+        # Determine output format from request
         filename_parts = request.filename.split('.')
         input_extension = filename_parts[-1] if len(filename_parts) > 1 and filename_parts[-1] else "mp4"
-        temp_input = os.path.join(tempfile.gettempdir(), f"input_{uuid.uuid4().hex}.{input_extension}")
         
-        # Determine output format - preserve input format when possible
         if request.output_format and request.output_format in ["mp4", "webm"]:
-            # Use explicitly requested format
             output_format = request.output_format
         else:
             # Try to preserve input format, with fallbacks
@@ -437,48 +486,38 @@ async def predict_video(request: VideoProcessingRequest):
             elif input_extension.lower() in ["webm", "mkv"]:
                 output_format = "webm"
             else:
-                # Default based on codec for unknown extensions
                 output_format = "mp4" if video_codec in ["h264", "mp4v"] else "webm"
         
         logger.info(f"Input format: {input_extension}, Output format: {output_format}")
         
-        # Write video data to temporary file
-        async with aiofiles.open(temp_input, 'wb') as f:
-            await f.write(video_data)
+        # Use new Modal video processing approach - send entire video to Modal
+        frame_skip = 10  # Process every 10th frame
+        logger.info(f"Processing video with Modal (frame_skip={frame_skip})")
         
-        try:
-            logger.info(f"Starting frame processing for video: {temp_input}")
-            # Process video frames
-            processed_frames = await process_video_frames(temp_input)
-            logger.info(f"Processed {len(processed_frames)} frames")
-            
-            # Create output video with annotations
-            logger.info("Using client-side overlay - no video processing needed")
-            output_video_b64 = ""  # Empty since we use client-side overlays
-            
-            # Return enhanced response with frame predictions
-            response_data = {
-                "success": True,
-                "output_video": output_video_b64,
-                "output_format": output_format,
-                "frames": [frame.model_dump() for frame in processed_frames],  # Include frame predictions!
-                "total_frames": len(processed_frames),
-                "processed_frames": len(processed_frames)
-            }
-            
-            # Debug: log what we're sending to frontend
-            logger.info(f"Sending response with {len(processed_frames)} frames")
-            if processed_frames:
-                sample_frame = processed_frames[0]
-                logger.info(f"Sample frame: number={sample_frame.frame_number}, timestamp={sample_frame.timestamp}, predictions={len(sample_frame.predictions)}")
-                if sample_frame.predictions:
-                    sample_pred = sample_frame.predictions[0]
-                    logger.info(f"Sample prediction: label={sample_pred.label}, bbox={sample_pred.bbox}")
-            
-            return VideoProcessingResponse(**response_data)
+        # Process entire video using Modal API
+        processed_frames = await process_video_with_modal(request.video_data, frame_skip)
+        logger.info(f"Received {len(processed_frames)} processed frames from Modal")
         
-        finally:
-            cleanup_temp_file(temp_input)
+        # Return response with frame predictions (no video encoding needed for client-side overlay)
+        response_data = {
+            "success": True,
+            "output_video": "",  # Empty since we use client-side overlays
+            "output_format": output_format,
+            "frames": [frame.model_dump() for frame in processed_frames],
+            "total_frames": len(processed_frames),
+            "processed_frames": len(processed_frames)
+        }
+        
+        # Debug: log what we're sending to frontend
+        logger.info(f"Sending response with {len(processed_frames)} frames")
+        if processed_frames:
+            sample_frame = processed_frames[0]
+            logger.info(f"Sample frame: number={sample_frame.frame_number}, timestamp={sample_frame.timestamp}, predictions={len(sample_frame.predictions)}")
+            if sample_frame.predictions:
+                sample_pred = sample_frame.predictions[0]
+                logger.info(f"Sample prediction: label={sample_pred.label}, bbox={sample_pred.bbox}")
+        
+        return VideoProcessingResponse(**response_data)
     
     except Exception as e:
         logger.error(f"Error processing video: {str(e)}")

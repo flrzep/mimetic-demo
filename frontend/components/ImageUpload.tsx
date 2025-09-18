@@ -130,7 +130,7 @@ const ImageUpload: React.FC<Props> = ({
       <div className="flex flex-col sm:flex-row gap-2">
         <button type="button" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-brand-500 hover:bg-brand-600 text-white disabled:opacity-60 text-sm sm:text-base" onClick={onPredict} disabled={!canPredict} aria-disabled={!canPredict}>
           <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span>Predict</span>
+          <span>Process Image</span>
         </button>
         
         <button type="button" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/10 hover:bg-white/10 disabled:opacity-60 text-sm sm:text-base" onClick={onReset} disabled={!file}>

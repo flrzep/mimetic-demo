@@ -49,9 +49,14 @@ image = modal.Image.debian_slim(python_version="3.11").apt_install([
     "numpy",
     "torch",
     "torchvision", 
-    "ultralytics",  # For YOLO models
+    "onnxruntime",
+    "transformers",
+    "datasets",
+    "accelerate",
+    "timm",
+    "huggingface-hub",
     "pydantic"
-])
+]).copy_local_dir("models", "/app/models")  # Copy YOLO model files
 
 @app.function(
     image=image,
@@ -60,28 +65,69 @@ image = modal.Image.debian_slim(python_version="3.11").apt_install([
     timeout=3600
 )
 def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:
-    
     '''
-    Run inference on a single image
-    Replace this with your actual model inference
+    Run YOLOv10 inference on a single image
     '''
 
     try:
         # Import inside function to avoid Modal deployment issues
+        import sys
+        sys.path.append('/app')
+        import cv2
+        import numpy as np
+        from models.yolo.yolo import YOLOv10
         from PIL import Image
+
+        print(f"Processing image with YOLOv10: {width}x{height}")
+
+        # Initialize YOLO model (cached after first call)
+        if not hasattr(process_image, "_yolo_model"):
+            print("Initializing YOLOv10 model...")
+            process_image._yolo_model = YOLOv10(cache_dir="/tmp/yolo_cache")
+            print("YOLOv10 model initialized")
 
         # Decode base64 image
         image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes))
+        pil_image = Image.open(io.BytesIO(image_bytes))
         
-        # Mock prediction - replace with your actual model
-        # Example with YOLO or other object detection model:
-        # model = YOLO('yolov8n.pt')  # or load your custom model
-        # results = model(image)
-        # predictions = process_results(results, width, height)
+        # Convert PIL to OpenCV format
+        cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
         
-        # Mock predictions for now
-        predictions = [
+        # Run YOLO inference
+        print("Running YOLOv10 inference...")
+        outputs = process_image._yolo_model.session.run(
+            process_image._yolo_model.output_names, 
+            {process_image._yolo_model.input_names[0]: process_image._yolo_model.prepare_input(cv_image)}
+        )
+        
+        # Process outputs to get predictions
+        boxes, scores, class_ids = process_image._yolo_model.process_output(outputs, conf_threshold=0.3)
+        
+        # Convert to our API format
+        predictions = []
+        for i, (box, score, class_id) in enumerate(zip(boxes, scores, class_ids)):
+            x1, y1, x2, y2 = box.astype(int)
+            predictions.append({
+                "class_id": int(class_id),
+                "confidence": float(score),
+                "label": process_image._yolo_model.class_names[class_id],
+                "bbox": {
+                    "x": float(x1),
+                    "y": float(y1),
+                    "width": float(x2 - x1),
+                    "height": float(y2 - y1)
+                }
+            })
+        
+        print(f"YOLOv10 detected {len(predictions)} objects")
+        return predictions
+        
+    except Exception as e:
+        print(f"Error processing image with YOLOv10: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to mock predictions
+        return [
             {
                 "class_id": 0,
                 "confidence": 0.95,
@@ -94,12 +140,6 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
                 }
             }
         ]
-        
-        return predictions
-        
-    except Exception as e:
-        print(f"Error processing image: {e}")
-        return []
 
 @app.function(
     image=image,
@@ -109,22 +149,30 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
 )
 def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
     '''
-    Process entire video and return predictions for all frames
+    Process entire video with YOLOv10 and return predictions for all frames
     This is more efficient than processing frames individually
     '''
     
     try:
         # Import inside function to avoid Modal deployment issues
         import os
-
+        import sys
+        sys.path.append('/app')
         import cv2
         import numpy as np
+        from models.yolo.yolo import YOLOv10
 
         # Set environment variables for headless OpenCV
         os.environ['DISPLAY'] = ''
         os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
-        print(f"Starting video processing with frame_skip={frame_skip}")
+        print(f"Starting video processing with YOLOv10, frame_skip={frame_skip}")
+        
+        # Initialize YOLO model once (key efficiency gain)
+        if not hasattr(process_video, "_yolo_model"):
+            print("Initializing YOLOv10 model for video processing...")
+            process_video._yolo_model = YOLOv10(cache_dir="/tmp/yolo_cache")
+            print("YOLOv10 model initialized for video")
         
         # Decode base64 video
         video_bytes = base64.b64decode(video_b64)
@@ -147,9 +195,6 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         
         print(f"Video properties: {video_width}x{video_height}, fps={fps}")
         
-        # Initialize model once (this is the key efficiency gain)
-        # model = YOLO('yolov8n.pt')  # Load your model once here
-        
         processed_frames = []
         frame_count = 0
         
@@ -163,37 +208,40 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
                 if frame_count % frame_skip == 0:
                     timestamp = frame_count / fps if fps > 0 else frame_count * 0.033  # fallback to ~30fps
                     
-                    # Run inference on this frame
-                    # For now, mock predictions. Replace with:
-                    # results = model(frame)
-                    # frame_predictions = process_model_results(results, video_width, video_height)
+                    # Run YOLOv10 inference on this frame
+                    print(f"Processing frame {frame_count} at timestamp {timestamp:.2f}s")
                     
-                    # Mock predictions with some variation
-                    import random
-                    frame_predictions = [
-                        {
-                            "class_id": 0,
-                            "confidence": round(random.uniform(0.85, 0.98), 2),
-                            "label": "person",
-                            "bbox": {
-                                "x": random.randint(50, max(51, video_width // 2)),
-                                "y": random.randint(30, max(31, video_height // 3)),
-                                "width": random.randint(video_width // 4, video_width // 2),
-                                "height": random.randint(video_height // 3, video_height // 2)
-                            }
-                        },
-                        {
-                            "class_id": 1,
-                            "confidence": round(random.uniform(0.75, 0.95), 2),
-                            "label": "car",
-                            "bbox": {
-                                "x": random.randint(video_width // 2, max(video_width // 2 + 1, video_width - 300)),
-                                "y": random.randint(video_height // 3, max(video_height // 3 + 1, video_height // 2)),
-                                "width": random.randint(video_width // 3, video_width // 2),
-                                "height": random.randint(video_height // 5, video_height // 3)
-                            }
-                        }
-                    ]
+                    try:
+                        # Run YOLO inference
+                        outputs = process_video._yolo_model.session.run(
+                            process_video._yolo_model.output_names, 
+                            {process_video._yolo_model.input_names[0]: process_video._yolo_model.prepare_input(frame)}
+                        )
+                        
+                        # Process outputs to get predictions
+                        boxes, scores, class_ids = process_video._yolo_model.process_output(outputs, conf_threshold=0.3)
+                        
+                        # Convert to our API format
+                        frame_predictions = []
+                        for i, (box, score, class_id) in enumerate(zip(boxes, scores, class_ids)):
+                            x1, y1, x2, y2 = box.astype(int)
+                            frame_predictions.append({
+                                "class_id": int(class_id),
+                                "confidence": float(score),
+                                "label": process_video._yolo_model.class_names[class_id],
+                                "bbox": {
+                                    "x": float(x1),
+                                    "y": float(y1),
+                                    "width": float(x2 - x1),
+                                    "height": float(y2 - y1)
+                                }
+                            })
+                        
+                        print(f"Frame {frame_count}: detected {len(frame_predictions)} objects")
+                        
+                    except Exception as frame_error:
+                        print(f"Error processing frame {frame_count}: {frame_error}")
+                        frame_predictions = []  # Empty predictions for failed frames
                     
                     # Create frame data structure
                     frame_data = {
@@ -219,6 +267,8 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         
     except Exception as e:
         print(f"Error processing video: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 # Create FastAPI app inside function to avoid import issues

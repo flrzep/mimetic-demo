@@ -2,10 +2,14 @@ name: Deploy Modal Services
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, dev/*, feature/*, preview/*]
     paths:
       - 'modal-service/**'
       - '.github/workflows/deploy-modal.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'modal-service/**'
   workflow_dispatch: # Allow manual triggering
 
 jobs:
@@ -34,106 +38,120 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
-      - name: Deploy main service
+      - name: Get branch info
+        id: branch
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "branch_name=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+            echo "is_preview=true" >> $GITHUB_OUTPUT
+          else
+            branch_name="${{ github.ref_name }}"
+            echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+            if [[ "$branch_name" == "main" ]]; then
+              echo "is_preview=false" >> $GITHUB_OUTPUT
+            else
+              echo "is_preview=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Determine app name
+        id: app_name
+        run: |
+          branch_name="${{ steps.branch.outputs.branch_name }}"
+          if [[ "$branch_name" == "main" ]]; then
+            app_name="mimetic-demo"
+          else
+            # Sanitize branch name for Modal
+            safe_branch=$(echo "$branch_name" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+            app_name="mimetic-demo-$safe_branch"
+          fi
+          echo "app_name=$app_name" >> $GITHUB_OUTPUT
+          echo "Deploying to Modal app: $app_name"
+
+      - name: Deploy service
         run: |
           cd modal-service
+          echo "Deploying Modal app: ${{ steps.app_name.outputs.app_name }}"
           modal deploy modal_service.py
 
       - name: Get deployment URL
         id: url
         run: |
           cd modal-service
-          echo "Getting deployment URL..."
+          echo "Getting deployment URL for app: ${{ steps.app_name.outputs.app_name }}"
           
-          # Get main service URL
-          MAIN_URL=$(modal app list --json | jq -r '.[] | select(.name=="mimetic-demo") | .web_url // empty')
-          if [ -n "$MAIN_URL" ]; then
-            echo "main_url=$MAIN_URL" >> $GITHUB_OUTPUT
-            echo "Main service deployed at: $MAIN_URL"
+          # Wait a moment for deployment to complete
+          sleep 10
+          
+          # Get app URL from Modal
+          APP_URL=$(modal app list --json | jq -r '.[] | select(.name=="${{ steps.app_name.outputs.app_name }}") | .web_url // empty')
+          if [ -n "$APP_URL" ]; then
+            echo "app_url=$APP_URL" >> $GITHUB_OUTPUT
+            echo "Modal app deployed at: $APP_URL"
           else
-            echo "Could not get main service URL"
+            echo "Warning: Could not retrieve app URL for ${{ steps.app_name.outputs.app_name }}"
+            # List all apps for debugging
+            echo "Available apps:"
+            modal app list
           fi
 
-      - name: Create deployment summary
+      - name: Update deployment status
+        if: steps.url.outputs.app_url != ''
         run: |
-          echo "## 🚀 Modal Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployed Service:" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
-            echo "- **Modal Service**: ${{ steps.url.outputs.main_url }}" >> $GITHUB_STEP_SUMMARY
-            echo "  - Health: ${{ steps.url.outputs.main_url }}/health" >> $GITHUB_STEP_SUMMARY
-            echo "  - Predict: ${{ steps.url.outputs.main_url }}/predict" >> $GITHUB_STEP_SUMMARY
-            echo "  - WebSocket: ${{ steps.url.outputs.main_url }}/ws/{{client_id}}" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Update Render Environment Variables:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`env" >> $GITHUB_STEP_SUMMARY
-          echo "USE_MOCK_MODAL=false" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
-            echo "MODAL_ENDPOINT_URL=${{ steps.url.outputs.main_url }}" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Endpoints:" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -n "${{ steps.url.outputs.main_url }}" ]; then
-            echo "- Health Check: \`curl ${{ steps.url.outputs.main_url }}/health\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "✅ Modal deployment successful!"
+          echo "🚀 App URL: ${{ steps.url.outputs.app_url }}"
+          echo "📱 App Name: ${{ steps.app_name.outputs.app_name }}"
+          echo "🌿 Branch: ${{ steps.branch.outputs.branch_name }}"
 
-      - name: Comment on commit
+      - name: Comment on PR (if preview deployment)
+        if: github.event_name == 'pull_request' && steps.url.outputs.app_url != ''
         uses: actions/github-script@v6
-        if: steps.urls.outputs.main_url != ''
         with:
           script: |
-            const { repo, owner } = context.repo;
-            const { sha } = context;
+            const appUrl = '${{ steps.url.outputs.app_url }}';
+            const appName = '${{ steps.app_name.outputs.app_name }}';
+            const branch = '${{ steps.branch.outputs.branch_name }}';
             
-            let body = '## 🚀 Modal Deployment Complete\n\n';
-            body += '### Deployed Services:\n';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 **Modal Preview Deployment**
             
-            if ('${{ steps.urls.outputs.main_url }}') {
-              body += '- **Main Service**: ${{ steps.urls.outputs.main_url }}\n';
-              body += '  - Health: ${{ steps.urls.outputs.main_url }}/health\n';
-              body += '  - Predict: ${{ steps.urls.outputs.main_url }}/predict\n';
-            }
-            
-            if ('${{ steps.urls.outputs.webrtc_url }}') {
-              body += '- **WebRTC Service**: ${{ steps.urls.outputs.webrtc_url }}\n';
-            }
-            
-            body += '\n### Environment Variables:\n```env\n';
-            body += 'USE_MOCK_MODAL=false\n';
-            
-            if ('${{ steps.urls.outputs.main_url }}') {
-              body += 'MODAL_ENDPOINT_URL=${{ steps.urls.outputs.main_url }}\n';
-            }
-            
-            if ('${{ steps.urls.outputs.webrtc_url }}') {
-              body += 'MODAL_WEBRTC_URL=${{ steps.urls.outputs.webrtc_url }}\n';
-            }
-            
-            body += '```';
-            
-            await github.rest.repos.createCommitComment({
-              owner,
-              repo,
-              commit_sha: sha,
-              body
+            **Branch:** \`${branch}\`
+            **App Name:** \`${appName}\`
+            **URL:** ${appUrl}
+
+            You can test the ML inference API at:
+            - Health check: \`${appUrl}/health\`
+            - Image prediction: \`${appUrl}/predict\`
+            - Video processing: \`${appUrl}/process_video\`
+
+            This preview deployment will be available until the PR is merged or closed.`
             });
 
-  notify-failure:
-    name: Notify on Failure
+  cleanup-preview:
     runs-on: ubuntu-latest
-    needs: deploy
-    if: failure()
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
     
     steps:
-      - name: Deployment Failed
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Modal CLI
+        run: pip install modal
+
+      - name: Authenticate with Modal
         run: |
-          echo "❌ Modal deployment failed!"
-          echo "Check the logs above for details."
-          exit 1
+          modal token set --token-id ${{ secrets.MODAL_TOKEN_ID }} --token-secret ${{ secrets.MODAL_TOKEN_SECRET }}
+
+      - name: Delete preview app
+        run: |
+          branch_name="${{ github.head_ref }}"
+          safe_branch=$(echo "$branch_name" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+          app_name="mimetic-demo-$safe_branch"
+          echo "Attempting to delete preview app: $app_name"
+          modal app stop "$app_name" || true
+          echo "Preview app cleanup completed"

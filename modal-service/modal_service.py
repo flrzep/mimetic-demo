@@ -8,8 +8,30 @@ from typing import Dict, List, Optional
 
 import modal
 
-# Modal app configuration
-app = modal.App("mimetic-demo")
+
+# Determine app name based on environment/branch
+def get_app_name():
+    # Check for GitHub Actions environment variable
+    github_ref = os.getenv("GITHUB_REF", "")
+    if github_ref:
+        # Extract branch name from refs/heads/branch-name
+        if github_ref.startswith("refs/heads/"):
+            branch = github_ref[11:]  # Remove "refs/heads/"
+            if branch == "main":
+                return "mimetic-demo"
+            else:
+                # Sanitize branch name for Modal (replace special chars with hyphens)
+                safe_branch = branch.replace("/", "-").replace("_", "-").replace(".", "-")
+                return f"mimetic-demo-{safe_branch}"
+    
+    # Local development or fallback
+    return os.getenv("MODAL_APP_NAME", "mimetic-demo-dev")
+
+# Modal app configuration with dynamic name
+app_name = get_app_name()
+app = modal.App(app_name)
+
+print(f"Modal app name: {app_name}")
 
 # Define the Modal image with required dependencies
 image = modal.Image.debian_slim(python_version="3.11").apt_install([
@@ -269,4 +291,6 @@ def web():
 if __name__ == "__main__":
     # For local development
     print("Modal CV Inference Service")
+    print(f"App name: {app_name}")
     print("Deploy with: modal deploy modal_service.py")
+    print("For local dev with custom name: MODAL_APP_NAME=my-test-app modal deploy modal_service.py")

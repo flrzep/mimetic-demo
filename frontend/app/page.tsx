@@ -176,7 +176,7 @@ export default function Page() {
       }
     };
     ping();
-    const t = setInterval(ping, 15000);
+    const t = setInterval(ping, 300000); // Check every 5 minutes instead of 15
     return () => { isMounted = false; clearInterval(t); };
   }, []);
 

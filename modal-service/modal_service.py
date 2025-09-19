@@ -12,7 +12,15 @@ import modal
 app = modal.App("mimetic-demo")
 
 # Define the Modal image with required dependencies
-image = modal.Image.debian_slim(python_version="3.11").pip_install([
+image = modal.Image.debian_slim(python_version="3.11").apt_install([
+    "libgl1-mesa-glx",
+    "libglib2.0-0", 
+    "libsm6",
+    "libxext6",
+    "libxrender-dev",
+    "libgomp1",
+    "libgcc-s1"
+]).pip_install([
     "fastapi[all]",
     "pillow",
     "opencv-python-headless",
@@ -85,8 +93,14 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
     
     try:
         # Import inside function to avoid Modal deployment issues
+        import os
+
         import cv2
         import numpy as np
+
+        # Set environment variables for headless OpenCV
+        os.environ['DISPLAY'] = ''
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
         print(f"Starting video processing with frame_skip={frame_skip}")
         

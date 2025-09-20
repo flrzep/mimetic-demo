@@ -29,7 +29,6 @@ def get_app_name():
 
 # Modal app configuration with dynamic name
 app_name = get_app_name()
-app = modal.App(app_name)
 
 print(f"Modal app name: {app_name}")
 
@@ -58,178 +57,204 @@ image = modal.Image.debian_slim(python_version="3.11").apt_install([
     "pydantic"
 ])
 
+# Create the Modal app with branch-based naming
+app = modal.App(app_name, image=image)
+
 # Create a volume for model caching
 model_volume = modal.Volume.from_name("yolo-models", create_if_missing=True)
 
 # Global variable to store the model instance
 yolo_model = None
 
+class YOLOv10:
+    """YOLOv10 implementation using ONNX runtime"""
+    def __init__(self, cache_dir):
+        import onnxruntime
+        from huggingface_hub import hf_hub_download
+
+        # Initialize model
+        self.cache_dir = cache_dir
+        print(f"Initializing YOLO model from {self.cache_dir}")
+        model_file = hf_hub_download(
+            repo_id="onnx-community/yolov10n",
+            filename="onnx/model.onnx",
+            cache_dir=self.cache_dir,
+        )
+        self.initialize_model(model_file)
+        print("YOLO model initialized")
+
+    def initialize_model(self, model_file):
+        import numpy as np
+        import onnxruntime
+        
+        self.session = onnxruntime.InferenceSession(
+            model_file,
+            providers=[
+                (
+                    "TensorrtExecutionProvider",
+                    {
+                        "trt_engine_cache_enable": True,
+                        "trt_engine_cache_path": str(self.cache_dir) + "/onnx.cache",
+                    },
+                ),
+                "CUDAExecutionProvider",
+            ],
+        )
+        # Get model info
+        self.get_input_details()
+        self.get_output_details()
+
+        # COCO class names
+        self.class_names = [
+            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+            "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+            "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+            "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+            "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+            "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+            "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+            "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+            "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+            "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
+            "toothbrush"
+        ]
+        rng = np.random.default_rng(3)
+        self.colors = rng.uniform(0, 255, size=(len(self.class_names), 3))
+
+    def get_input_details(self):
+        model_inputs = self.session.get_inputs()
+        self.input_width = model_inputs[0].shape[2]
+        self.input_height = model_inputs[0].shape[3]
+
+    def get_output_details(self):
+        model_outputs = self.session.get_outputs()
+        self.output_names = [model_output.name for model_output in model_outputs]
+
+    def preprocess(self, image):
+        import cv2
+        import numpy as np
+
+        # Get image dimensions
+        self.img_height, self.img_width = image.shape[:2]
+
+        # Resize image to match model input
+        input_img = cv2.resize(image, (self.input_width, self.input_height))
+
+        # Normalize pixel values to range [0, 1]
+        input_img = input_img / 255.0
+
+        # Transpose to match PyTorch format (C, H, W)
+        input_img = input_img.transpose(2, 0, 1)
+
+        # Add batch dimension
+        input_tensor = input_img[np.newaxis, :, :, :].astype(np.float32)
+
+        return input_tensor
+
+    def postprocess(self, input_img, output):
+        import numpy as np
+        
+        predictions = np.squeeze(output[0]).T
+
+        # Filter out object confidence scores below threshold
+        scores = np.max(predictions[:, 4:], axis=1)
+        predictions = predictions[scores > 0.3, :]
+        scores = scores[scores > 0.3]
+
+        if len(scores) == 0:
+            return [], [], []
+
+        # Get the class with the highest confidence
+        class_ids = np.argmax(predictions[:, 4:], axis=1)
+
+        # Get bounding boxes for each object
+        boxes = self.extract_boxes(predictions)
+
+        # Apply non-maximum suppression to suppress weak, overlapping bounding boxes
+        indices = self.apply_nms(boxes, scores)
+
+        return boxes[indices], scores[indices], class_ids[indices]
+
+    def extract_boxes(self, predictions):
+        import numpy as np
+
+        # Extract boxes from predictions
+        boxes = predictions[:, :4]
+
+        # Scale boxes to original image dimensions
+        boxes = self.rescale_boxes(boxes)
+
+        # Convert boxes to xyxy format
+        boxes = self.xywh2xyxy(boxes)
+
+        return boxes
+
+    def rescale_boxes(self, boxes):
+        import numpy as np
+
+        # Rescale boxes to original image dimensions
+        input_shape = np.array([self.input_width, self.input_height, self.input_width, self.input_height])
+        boxes = np.divide(boxes, input_shape, dtype=np.float32)
+        boxes *= np.array([self.img_width, self.img_height, self.img_width, self.img_height])
+        return boxes
+
+    def xywh2xyxy(self, x):
+        # Convert bounding box format from (center x, center y, width, height) to (x1, y1, x2, y2)
+        y = x.copy()
+        y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
+        y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
+        y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
+        y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
+        return y
+
+    def apply_nms(self, boxes, scores):
+        import cv2
+        import numpy as np
+
+        # Apply non-maximum suppression
+        indices = cv2.dnn.NMSBoxes(boxes, scores, 0.3, 0.4)
+        return indices.flatten() if len(indices) > 0 else np.array([])
+
+    def predict(self, image):
+        import numpy as np
+        
+        input_tensor = self.preprocess(image)
+        outputs = self.session.run(self.output_names, {self.session.get_inputs()[0].name: input_tensor})
+        boxes, scores, class_ids = self.postprocess(input_tensor, outputs)
+
+        # Convert results to list of dictionaries
+        results = []
+        for i in range(len(boxes)):
+            x1, y1, x2, y2 = boxes[i].astype(int)
+            results.append({
+                "class": self.class_names[class_ids[i]],
+                "confidence": float(scores[i]),
+                "bbox": [int(x1), int(y1), int(x2), int(y2)]
+            })
+
+        return results
+
+
+
 def get_yolo_model():
     """Initialize YOLO model once and reuse across function calls"""
     global yolo_model
     if yolo_model is None:
-        # Import here to avoid deployment issues
-        import os
         print("Loading YOLOv10 model...")
         
-        try:
-            # Use Hugging Face model instead of local files
-            yolo_model = HuggingFaceYOLO()
-            print("YOLOv10 model loaded from Hugging Face")
-        except Exception as e:
-            # Fallback to basic implementation
-            print(f"Failed to load HF model ({e}), using fallback implementation...")
-            yolo_model = FallbackYOLO()
+        import onnxruntime
+        onnxruntime.preload_dlls()
+        
+        cache_path = "/cache/yolo"
+        import os
+        os.makedirs(cache_path, exist_ok=True)
+        
+        # Use the embedded YOLOv10 implementation
+        yolo_model = YOLOv10(cache_path)
+        print("YOLOv10 model loaded successfully")
+        
         print("YOLO model ready")
     return yolo_model
-
-class HuggingFaceYOLO:
-    """YOLOv10 implementation using Hugging Face models"""
-    def __init__(self):
-        import numpy as np
-        import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
-        
-        try:
-            # Download YOLOv10 ONNX model from Hugging Face
-            model_path = hf_hub_download(
-                repo_id="jameslahm/yolov10n", 
-                filename="yolov10n.onnx",
-                cache_dir="/cache/yolo"
-            )
-            
-            # Initialize ONNX Runtime session
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            self.session = ort.InferenceSession(model_path, providers=providers)
-            
-            # Get input/output information
-            self.input_names = [input.name for input in self.session.get_inputs()]
-            self.output_names = [output.name for output in self.session.get_outputs()]
-            
-            # COCO class names for YOLOv10
-            self.class_names = [
-                "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-                "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-                "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-                "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-                "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-                "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-                "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-                "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-                "hair drier", "toothbrush"
-            ]
-            
-            print(f"YOLOv10 loaded with {len(self.class_names)} classes")
-            
-        except Exception as e:
-            print(f"Error loading YOLOv10 from HuggingFace: {e}")
-            raise e
-    
-    def prepare_input(self, image):
-        """Prepare input for YOLOv10 inference"""
-        import cv2
-        import numpy as np
-
-        # Resize image to model input size (640x640)
-        input_size = 640
-        h, w = image.shape[:2]
-        
-        # Calculate scale and padding
-        scale = min(input_size / h, input_size / w)
-        new_h, new_w = int(h * scale), int(w * scale)
-        
-        # Resize image
-        resized = cv2.resize(image, (new_w, new_h))
-        
-        # Create padded image
-        padded = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
-        
-        # Calculate padding offsets
-        top = (input_size - new_h) // 2
-        left = (input_size - new_w) // 2
-        
-        # Place resized image in padded canvas
-        padded[top:top+new_h, left:left+new_w] = resized
-        
-        # Convert to RGB and normalize
-        rgb_image = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
-        normalized = rgb_image.astype(np.float32) / 255.0
-        
-        # Transpose to CHW format and add batch dimension
-        input_tensor = np.transpose(normalized, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-        
-        # Store scale and padding for later use
-        self._scale = scale
-        self._top_pad = top
-        self._left_pad = left
-        
-        return input_tensor
-    
-    def process_output(self, outputs, conf_threshold=0.3):
-        """Process YOLOv10 output to get bounding boxes"""
-        import numpy as np
-
-        # YOLOv10 output format: [batch, detections, 6] where 6 = [x1, y1, x2, y2, conf, class]
-        detections = outputs[0][0]  # Remove batch dimension
-        
-        # Filter by confidence
-        confident_detections = detections[detections[:, 4] > conf_threshold]
-        
-        if len(confident_detections) == 0:
-            return np.array([]), np.array([]), np.array([])
-        
-        # Extract components
-        boxes = confident_detections[:, :4]  # x1, y1, x2, y2
-        scores = confident_detections[:, 4]   # confidence
-        class_ids = confident_detections[:, 5].astype(int)  # class id
-        
-        # Convert coordinates back to original image space
-        # Account for padding and scaling
-        boxes[:, [0, 2]] = (boxes[:, [0, 2]] - self._left_pad) / self._scale  # x coordinates
-        boxes[:, [1, 3]] = (boxes[:, [1, 3]] - self._top_pad) / self._scale   # y coordinates
-        
-        # Ensure coordinates are non-negative
-        boxes = np.maximum(boxes, 0)
-        
-        return boxes, scores, class_ids
-
-class FallbackYOLO:
-    """Fallback YOLO implementation when model files aren't available"""
-    def __init__(self):
-        self.class_names = ["person", "car", "truck", "bus", "motorbike", "bicycle"]
-        
-    def prepare_input(self, image):
-        import numpy as np
-
-        # Mock input preparation
-        return np.random.randn(1, 3, 640, 640).astype(np.float32)
-    
-    def process_output(self, outputs, conf_threshold=0.3):
-        import numpy as np
-
-        # Mock output processing - return some fake detections
-        boxes = np.array([[100, 100, 200, 200], [300, 150, 450, 300]])
-        scores = np.array([0.85, 0.75])
-        class_ids = np.array([0, 1])
-        return boxes, scores, class_ids
-    
-    @property
-    def session(self):
-        return self
-    
-    @property
-    def output_names(self):
-        return ["output"]
-    
-    @property 
-    def input_names(self):
-        return ["input"]
-    
-    def run(self, output_names, input_dict):
-        # Mock inference
-        import numpy as np
-        return [np.random.randn(1, 25200, 6)]
 
 @app.function(
     image=image,
@@ -263,22 +288,16 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
         
         # Run YOLO inference
         print("Running YOLOv10 inference...")
-        outputs = model.session.run(
-            model.output_names, 
-            {model.input_names[0]: model.prepare_input(cv_image)}
-        )
-        
-        # Process outputs to get predictions
-        boxes, scores, class_ids = model.process_output(outputs, conf_threshold=0.3)
+        results = model.predict(cv_image)
         
         # Convert to our API format
         predictions = []
-        for i, (box, score, class_id) in enumerate(zip(boxes, scores, class_ids)):
-            x1, y1, x2, y2 = box.astype(int)
+        for result in results:
+            x1, y1, x2, y2 = result["bbox"]
             predictions.append({
-                "class_id": int(class_id),
-                "confidence": float(score),
-                "label": model.class_names[class_id],
+                "class_id": model.class_names.index(result["class"]),
+                "confidence": result["confidence"],
+                "label": result["class"],
                 "bbox": {
                     "x": float(x1),
                     "y": float(y1),
@@ -294,20 +313,8 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
         print(f"Error processing image with YOLOv10: {e}")
         import traceback
         traceback.print_exc()
-        # Fallback to mock predictions
-        return [
-            {
-                "class_id": 0,
-                "confidence": 0.95,
-                "label": "detected_object",
-                "bbox": {
-                    "x": width * 0.2,
-                    "y": height * 0.2,
-                    "width": width * 0.4,
-                    "height": height * 0.3
-                }
-            }
-        ]
+        # Re-raise the exception instead of returning mock data
+        raise e
 
 @app.function(
     image=image,
@@ -377,22 +384,16 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
                     
                     try:
                         # Run YOLO inference
-                        outputs = model.session.run(
-                            model.output_names, 
-                            {model.input_names[0]: model.prepare_input(frame)}
-                        )
-                        
-                        # Process outputs to get predictions
-                        boxes, scores, class_ids = model.process_output(outputs, conf_threshold=0.3)
+                        results = model.predict(frame)
                         
                         # Convert to our API format
                         frame_predictions = []
-                        for i, (box, score, class_id) in enumerate(zip(boxes, scores, class_ids)):
-                            x1, y1, x2, y2 = box.astype(int)
+                        for result in results:
+                            x1, y1, x2, y2 = result["bbox"]
                             frame_predictions.append({
-                                "class_id": int(class_id),
-                                "confidence": float(score),
-                                "label": model.class_names[class_id],
+                                "class_id": model.class_names.index(result["class"]),
+                                "confidence": result["confidence"],
+                                "label": result["class"],
                                 "bbox": {
                                     "x": float(x1),
                                     "y": float(y1),

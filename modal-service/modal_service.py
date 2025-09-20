@@ -66,176 +66,6 @@ model_volume = modal.Volume.from_name("yolo-models", create_if_missing=True)
 # Global variable to store the model instance
 yolo_model = None
 
-class YOLOv10:
-    """YOLOv10 implementation using ONNX runtime"""
-    def __init__(self, cache_dir):
-        import onnxruntime
-        from huggingface_hub import hf_hub_download
-
-        # Initialize model
-        self.cache_dir = cache_dir
-        print(f"Initializing YOLO model from {self.cache_dir}")
-        model_file = hf_hub_download(
-            repo_id="onnx-community/yolov10n",
-            filename="onnx/model.onnx",
-            cache_dir=self.cache_dir,
-        )
-        self.initialize_model(model_file)
-        print("YOLO model initialized")
-
-    def initialize_model(self, model_file):
-        import numpy as np
-        import onnxruntime
-        
-        self.session = onnxruntime.InferenceSession(
-            model_file,
-            providers=[
-                (
-                    "TensorrtExecutionProvider",
-                    {
-                        "trt_engine_cache_enable": True,
-                        "trt_engine_cache_path": str(self.cache_dir) + "/onnx.cache",
-                    },
-                ),
-                "CUDAExecutionProvider",
-            ],
-        )
-        # Get model info
-        self.get_input_details()
-        self.get_output_details()
-
-        # COCO class names
-        self.class_names = [
-            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-            "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
-            "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
-            "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
-            "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-            "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-            "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
-            "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
-            "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-            "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
-            "toothbrush"
-        ]
-        rng = np.random.default_rng(3)
-        self.colors = rng.uniform(0, 255, size=(len(self.class_names), 3))
-
-    def get_input_details(self):
-        model_inputs = self.session.get_inputs()
-        self.input_width = model_inputs[0].shape[2]
-        self.input_height = model_inputs[0].shape[3]
-
-    def get_output_details(self):
-        model_outputs = self.session.get_outputs()
-        self.output_names = [model_output.name for model_output in model_outputs]
-
-    def preprocess(self, image):
-        import cv2
-        import numpy as np
-
-        # Get image dimensions
-        self.img_height, self.img_width = image.shape[:2]
-
-        # Resize image to match model input
-        input_img = cv2.resize(image, (self.input_width, self.input_height))
-
-        # Normalize pixel values to range [0, 1]
-        input_img = input_img / 255.0
-
-        # Transpose to match PyTorch format (C, H, W)
-        input_img = input_img.transpose(2, 0, 1)
-
-        # Add batch dimension
-        input_tensor = input_img[np.newaxis, :, :, :].astype(np.float32)
-
-        return input_tensor
-
-    def postprocess(self, input_img, output):
-        import numpy as np
-        
-        predictions = np.squeeze(output[0]).T
-
-        # Filter out object confidence scores below threshold
-        scores = np.max(predictions[:, 4:], axis=1)
-        predictions = predictions[scores > 0.3, :]
-        scores = scores[scores > 0.3]
-
-        if len(scores) == 0:
-            return [], [], []
-
-        # Get the class with the highest confidence
-        class_ids = np.argmax(predictions[:, 4:], axis=1)
-
-        # Get bounding boxes for each object
-        boxes = self.extract_boxes(predictions)
-
-        # Apply non-maximum suppression to suppress weak, overlapping bounding boxes
-        indices = self.apply_nms(boxes, scores)
-
-        return boxes[indices], scores[indices], class_ids[indices]
-
-    def extract_boxes(self, predictions):
-        import numpy as np
-
-        # Extract boxes from predictions
-        boxes = predictions[:, :4]
-
-        # Scale boxes to original image dimensions
-        boxes = self.rescale_boxes(boxes)
-
-        # Convert boxes to xyxy format
-        boxes = self.xywh2xyxy(boxes)
-
-        return boxes
-
-    def rescale_boxes(self, boxes):
-        import numpy as np
-
-        # Rescale boxes to original image dimensions
-        input_shape = np.array([self.input_width, self.input_height, self.input_width, self.input_height])
-        boxes = np.divide(boxes, input_shape, dtype=np.float32)
-        boxes *= np.array([self.img_width, self.img_height, self.img_width, self.img_height])
-        return boxes
-
-    def xywh2xyxy(self, x):
-        # Convert bounding box format from (center x, center y, width, height) to (x1, y1, x2, y2)
-        y = x.copy()
-        y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
-        y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
-        y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
-        y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
-        return y
-
-    def apply_nms(self, boxes, scores):
-        import cv2
-        import numpy as np
-
-        # Apply non-maximum suppression
-        indices = cv2.dnn.NMSBoxes(boxes, scores, 0.3, 0.4)
-        return indices.flatten() if len(indices) > 0 else np.array([])
-
-    def predict(self, image):
-        import numpy as np
-        
-        input_tensor = self.preprocess(image)
-        outputs = self.session.run(self.output_names, {self.session.get_inputs()[0].name: input_tensor})
-        boxes, scores, class_ids = self.postprocess(input_tensor, outputs)
-
-        # Convert results to list of dictionaries
-        results = []
-        for i in range(len(boxes)):
-            x1, y1, x2, y2 = boxes[i].astype(int)
-            results.append({
-                "class": self.class_names[class_ids[i]],
-                "confidence": float(scores[i]),
-                "bbox": [int(x1), int(y1), int(x2), int(y2)]
-            })
-
-        return results
-
-
-
 def get_yolo_model():
     """Initialize YOLO model once and reuse across function calls"""
     global yolo_model
@@ -245,11 +75,14 @@ def get_yolo_model():
         import onnxruntime
         onnxruntime.preload_dlls()
         
+        # Import YOLOv10 from our local implementation
+        from yolo_model import YOLOv10
+        
         cache_path = "/cache/yolo"
         import os
         os.makedirs(cache_path, exist_ok=True)
         
-        # Use the embedded YOLOv10 implementation
+        # Use the YOLOv10 implementation from models/yolo
         yolo_model = YOLOv10(cache_path)
         print("YOLOv10 model loaded successfully")
         

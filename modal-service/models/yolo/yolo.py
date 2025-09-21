@@ -15,12 +15,12 @@ class YOLOv10:
         from huggingface_hub import hf_hub_download
 
         # Initialize model
-        self.cache_dir = cache_dir
+        self.cache_dir = Path(cache_dir)
         print(f"Initializing YOLO model from {self.cache_dir}")
         model_file = hf_hub_download(
             repo_id="onnx-community/yolov10n",
             filename="onnx/model.onnx",
-            cache_dir=self.cache_dir,
+            cache_dir=str(self.cache_dir),
         )
         self.initialize_model(model_file)
         print("YOLO model initialized")
@@ -56,6 +56,34 @@ class YOLOv10:
         new_image = self.inference(image, input_tensor, conf_threshold)
 
         return new_image
+
+    def predict(self, image, conf_threshold=0.3):
+        """
+        Predict objects in image and return results in API format
+        Compatible with the Modal service API expectations
+        """
+        input_tensor = self.prepare_input(image)
+        
+        # Run inference and get raw results
+        onnxruntime.set_seed(42)
+        outputs = self.session.run(
+            self.output_names, {self.input_names[0]: input_tensor}
+        )
+        
+        # Process outputs to get boxes, scores, class_ids
+        boxes, scores, class_ids = self.process_output(outputs, conf_threshold)
+        
+        # Convert to API format
+        results = []
+        for i in range(len(boxes)):
+            x1, y1, x2, y2 = boxes[i].astype(int)
+            results.append({
+                "class": self.class_names[class_ids[i]],
+                "confidence": float(scores[i]),
+                "bbox": [int(x1), int(y1), int(x2), int(y2)]
+            })
+        
+        return results
 
     def prepare_input(self, image):
         self.img_height, self.img_width = image.shape[:2]

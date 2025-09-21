@@ -75,14 +75,25 @@ def get_yolo_model():
         import onnxruntime
         onnxruntime.preload_dlls()
         
-        # Import YOLOv10 from our local implementation
+        # Import YOLOv10 from our local yolo_model.py file
+        import os
+        import sys
+
+        # Read the yolo class names from the existing file
+        with open("yolo_classes.txt", "r") as f:
+            yolo_classes_content = f.read()
+        
+        # Write the classes file to tmp for Modal environment
+        with open("/tmp/yolo_classes.txt", "w") as f:
+            f.write(yolo_classes_content)
+        
+        # Import and use the local YOLOv10 implementation
         from yolo_model import YOLOv10
         
         cache_path = "/cache/yolo"
-        import os
         os.makedirs(cache_path, exist_ok=True)
         
-        # Use the YOLOv10 implementation from models/yolo
+        # Initialize the model
         yolo_model = YOLOv10(cache_path)
         print("YOLOv10 model loaded successfully")
         

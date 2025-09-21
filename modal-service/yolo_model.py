@@ -43,12 +43,22 @@ class YOLOv10:
         self.get_input_details()
         self.get_output_details()
 
-        # Load class names from local file
-        classes_file = this_dir / "yolo_classes.txt"
-        if classes_file.exists():
-            with open(classes_file, "r") as f:
-                self.class_names = f.read().splitlines()
-        else:
+        # Load class names from local file or fallback paths
+        classes_file_paths = [
+            "/tmp/yolo_classes.txt",  # Modal environment path
+            this_dir / "yolo_classes.txt",  # Local development path
+        ]
+        
+        self.class_names = None
+        for classes_file in classes_file_paths:
+            try:
+                with open(classes_file, "r") as f:
+                    self.class_names = f.read().splitlines()
+                    break
+            except (FileNotFoundError, OSError):
+                continue
+        
+        if self.class_names is None:
             # Fallback to hardcoded COCO classes
             self.class_names = [
                 "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",

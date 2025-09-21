@@ -45,7 +45,7 @@ class YOLOv10:
 
         # Load class names from local file or fallback paths
         classes_file_paths = [
-            "/tmp/yolo_classes.txt",  # Modal environment path
+            "models/yolo/yolo_classes.txt",  # Modal environment path
             this_dir / "yolo_classes.txt",  # Local development path
         ]
         

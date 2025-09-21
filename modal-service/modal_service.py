@@ -79,14 +79,6 @@ def get_yolo_model():
         import os
         import sys
 
-        # Read the yolo class names from the existing file
-        with open("models/yolo/yolo_classes.txt", "r") as f:
-            yolo_classes_content = f.read()
-        
-        # Write the classes file to tmp for Modal environment
-        with open("/tmp/yolo_classes.txt", "w") as f:
-            f.write(yolo_classes_content)
-        
         # Import and use the local YOLOv10 implementation
         from yolo_model import YOLOv10
         

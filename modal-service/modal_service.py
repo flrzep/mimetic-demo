@@ -10,7 +10,10 @@ from typing import Dict, List, Optional
 
 import modal
 
-# Add current directory to Python path for local module imports
+# Add the app directory to Python path for local module imports
+app_dir = "/app"
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
 
 
 
@@ -64,6 +67,7 @@ image = (
         "huggingface-hub",
         "pydantic"
     ])
+    .add_local_dir(".", remote_path="/app")
 )
 
 # Create the Modal app with branch-based naming
@@ -213,7 +217,7 @@ def get_model():
         onnxruntime.preload_dlls()
         
         # Import and use the local model implementation
-        from .import_model import YOLOv10
+        from import_model import YOLOv10
         
         cache_path = "/cache/yolo"
         os.makedirs(cache_path, exist_ok=True)

@@ -79,8 +79,9 @@ def get_yolo_model():
         import os
         import sys
 
+        sys.path.append("./models/yolo")  # Ensure the path is included
         # Import and use the local YOLOv10 implementation
-        from yolo_model import YOLOv10
+        from yolo import YOLOv10
         
         cache_path = "/cache/yolo"
         os.makedirs(cache_path, exist_ok=True)

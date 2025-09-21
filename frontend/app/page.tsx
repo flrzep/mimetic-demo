@@ -176,7 +176,7 @@ export default function Page() {
       }
     };
     ping();
-    const t = setInterval(ping, 15000);
+    const t = setInterval(ping, 5* 60000);
     return () => { isMounted = false; clearInterval(t); };
   }, []);
 

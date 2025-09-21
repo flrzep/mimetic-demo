@@ -222,7 +222,6 @@ def get_model():
         model = YOLOv10()
         print("Model loaded successfully")
         
-        print("Model ready")
     return model
 
 @app.function(

@@ -4,6 +4,7 @@ import io
 import os
 import tempfile
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import modal
@@ -32,45 +33,177 @@ app_name = get_app_name()
 
 print(f"Modal app name: {app_name}")
 
-# Define the Modal image with required dependencies
-image = modal.Image.debian_slim(python_version="3.11").apt_install([
-    "libgl1-mesa-glx",
-    "libglib2.0-0", 
-    "libsm6",
-    "libxext6",
-    "libxrender-dev",
-    "libgomp1",
-    "libgcc-s1"
-]).pip_install([
-    "fastapi[all]",
-    "pillow",
-    "opencv-python-headless",
-    "numpy",
-    "torch",
-    "torchvision", 
-    "onnxruntime",
-    "transformers",
-    "datasets",
-    "accelerate",
-    "timm",
-    "huggingface-hub",
-    "pydantic"
-])
+# Define the Modal image with required dependencies (recommended approach for Modal)
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install([
+        "libgl1-mesa-dev",
+        "libglib2.0-0", 
+        "libsm6",
+        "libxext6",
+        "libxrender-dev",
+        "libgomp1",
+        "libgcc-s1"
+    ])
+    .pip_install([
+        "fastapi[all]",
+        "pillow",
+        "opencv-python-headless",
+        "numpy",
+        "torch",
+        "torchvision", 
+        "onnxruntime",
+        "transformers",
+        "datasets",
+        "accelerate",
+        "timm",
+        "huggingface-hub",
+        "pydantic"
+    ])
+)
 
 # Create the Modal app with branch-based naming
 app = modal.App(app_name, image=image)
 
-# Create a volume for model caching
-model_volume = modal.Volume.from_name("yolo-models", create_if_missing=True)
+# Create volumes for model caching and weights
+model_cache_volume = modal.Volume.from_name("yolo-models", create_if_missing=True)
+model_weights_volume = modal.Volume.from_name("model-weights-vol", create_if_missing=True)
+
+MODEL_DIR = Path("/models")
+CACHE_DIR = Path("/cache")
+
+# Pre-download YOLO model weights function
+@app.function(
+    image=image,
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
+    timeout=3600
+)
+def download_model_weights():
+    """Pre-download and cache YOLO model weights"""
+    import shutil
+
+    from huggingface_hub import hf_hub_download
+    
+    print("Downloading YOLO model weights...")
+    
+    # Download to cache first
+    cache_path = CACHE_DIR / "yolo"
+    cache_path.mkdir(parents=True, exist_ok=True)
+    
+    model_file = hf_hub_download(
+        repo_id="onnx-community/yolov10n",
+        filename="onnx/model.onnx",
+        cache_dir=str(cache_path),
+    )
+    
+    # Copy to persistent model weights volume
+    models_yolo_dir = MODEL_DIR / "yolo"
+    models_yolo_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Copy the downloaded model to the weights volume
+    destination = models_yolo_dir / "yolov10n.onnx"
+    shutil.copy2(model_file, destination)
+    
+    # Copy the class names file from the local models directory
+    local_classes_file = Path("models/yolo/yolo_classes.txt")
+    if local_classes_file.exists():
+        shutil.copy2(local_classes_file, models_yolo_dir / "yolo_classes.txt")
+        print(f"Class names copied from {local_classes_file}")
+    else:
+        print("Warning: models/yolo/yolo_classes.txt not found, model will use fallback classes")
+    
+    print(f"Model weights saved to {destination}")
+    print(f"Class names saved to {models_yolo_dir / 'yolo_classes.txt'}")
+    return str(destination)
+
+@app.function(
+    image=image,
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    }
+)
+def list_model_weights():
+    """List all model weights currently stored in the Modal volumes"""
+    import os
+    from pathlib import Path
+    
+    print("Checking Modal volumes for model weights...")
+    
+    results = {
+        "models_volume": {},
+        "cache_volume": {}
+    }
+    
+    # Check /models volume
+    models_path = Path("/models")
+    print(f"Checking /models volume at {models_path}")
+    if models_path.exists():
+        print(f"/models exists, listing contents...")
+        for model_dir in models_path.iterdir():
+            print(f"Found directory: {model_dir}")
+            if model_dir.is_dir():
+                files = []
+                total_size = 0
+                for file in model_dir.rglob("*"):
+                    if file.is_file():
+                        size = file.stat().st_size
+                        files.append({
+                            "name": file.name,
+                            "path": str(file.relative_to(models_path)),
+                            "size_mb": round(size / (1024 * 1024), 2)
+                        })
+                        total_size += size
+                        print(f"  File: {file.name} ({round(size / (1024 * 1024), 2)} MB)")
+                
+                results["models_volume"][model_dir.name] = {
+                    "files": files,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2)
+                }
+    else:
+        print("/models does not exist")
+    
+    # Check /cache volume
+    cache_path = Path("/cache")
+    print(f"Checking /cache volume at {cache_path}")
+    if cache_path.exists():
+        print(f"/cache exists, listing contents...")
+        for item in cache_path.iterdir():
+            print(f"Found in cache: {item}")
+            if item.is_dir():
+                files = []
+                total_size = 0
+                for file in item.rglob("*"):
+                    if file.is_file():
+                        size = file.stat().st_size
+                        files.append({
+                            "name": file.name,
+                            "path": str(file.relative_to(cache_path)),
+                            "size_mb": round(size / (1024 * 1024), 2)
+                        })
+                        total_size += size
+                
+                results["cache_volume"][item.name] = {
+                    "files": files,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2)
+                }
+    else:
+        print("/cache does not exist")
+    
+    print(f"Final results: {results}")
+    return results
 
 # Global variable to store the model instance
-yolo_model = None
+model = None
 
-def get_yolo_model():
-    """Initialize YOLO model once and reuse across function calls"""
-    global yolo_model
-    if yolo_model is None:
-        print("Loading YOLOv10 model...")
+def get_model():
+    """Initialize model once and reuse across function calls"""
+    global model
+    if model is None:
+        print("Loading model...")
         
         import onnxruntime
         onnxruntime.preload_dlls()
@@ -79,30 +212,32 @@ def get_yolo_model():
         import os
         import sys
 
-        sys.path.append("./models/yolo")  # Ensure the path is included
-        # Import and use the local YOLOv10 implementation
-        from yolo import YOLOv10
+        # Import and use the local model implementation
+        from import_model import YOLOv10
         
         cache_path = "/cache/yolo"
         os.makedirs(cache_path, exist_ok=True)
         
         # Initialize the model
-        yolo_model = YOLOv10(cache_path)
-        print("YOLOv10 model loaded successfully")
+        model = YOLOv10()
+        print("Model loaded successfully")
         
-        print("YOLO model ready")
-    return yolo_model
+        print("Model ready")
+    return model
 
 @app.function(
     image=image,
     gpu="any",
-    volumes={"/cache": model_volume},
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
     scaledown_window=300,
     timeout=3600
 )
 def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:
     '''
-    Run YOLOv10 inference on a single image
+    Run object detection inference on a single image
     '''
 
     try:
@@ -111,10 +246,10 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
         import numpy as np
         from PIL import Image
 
-        print(f"Processing image with YOLOv10: {width}x{height}")
+        print(f"Processing image with model: {width}x{height}")
 
-        # Get the shared YOLO model instance
-        model = get_yolo_model()
+        # Get the shared model instance
+        model = get_model()
 
         # Decode base64 image
         image_bytes = base64.b64decode(image_b64)
@@ -156,13 +291,16 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
 @app.function(
     image=image,
     gpu="any",
-    volumes={"/cache": model_volume},
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
     scaledown_window=300,
     timeout=3600
 )
 def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
     '''
-    Process entire video with YOLOv10 and return predictions for all frames
+    Process entire video with object detection and return predictions for all frames
     This is more efficient than processing frames individually
     '''
     
@@ -177,10 +315,10 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         os.environ['DISPLAY'] = ''
         os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
-        print(f"Starting video processing with YOLOv10, frame_skip={frame_skip}")
+        print(f"Starting video processing with model, frame_skip={frame_skip}")
         
-        # Get the shared YOLO model instance
-        model = get_yolo_model()
+        # Get the shared model instance
+        model = get_model()
         
         # Decode base64 video
         video_bytes = base64.b64decode(video_b64)
@@ -346,3 +484,8 @@ if __name__ == "__main__":
     print(f"App name: {app_name}")
     print("Deploy with: modal deploy modal_service.py")
     print("For local dev with custom name: MODAL_APP_NAME=my-test-app modal deploy modal_service.py")
+    print()
+    print("Available commands:")
+    print("- Download model weights: modal run modal_service.py::download_model_weights")
+    print("- Process single image: modal run modal_service.py::process_image --image-b64 <base64_string>")
+    print("- Start web server: modal serve modal_service.py")

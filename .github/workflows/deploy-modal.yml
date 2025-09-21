@@ -72,6 +72,13 @@ jobs:
         run: |
           cd modal-service
           echo "Deploying Modal app: ${{ steps.app_name.outputs.app_name }}"
+          
+          # Ensure all required files exist
+          echo "Checking required files..."
+          ls -la import_model.py
+          ls -la models/yolo/yolo_classes.txt
+          
+          # Deploy the service
           modal deploy modal_service.py
 
       - name: Get deployment URL

@@ -1,29 +1,121 @@
-# ---
-# lambda-test: false
-# ---
+"""
+Generic model loader for any model type in models/ directory.
+Dynamically imports and initializes model classes based on model name.
+"""
+
+import importlib
+import os
+import sys
+import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 import onnxruntime
 
-this_dir = Path(__file__).parent.resolve()
+this_dir = Path(__file__).parent
+
+def get_model_class(model_name="yolo"):
+    """
+    Dynamically import and return the model class from models/{model_name}/{model_name}.py
+    
+    Args:
+        model_name: Name of the model directory and Python file (e.g., "yolo", "sam", "clip")
+    
+    Returns:
+        The model class from the specified module
+    """
+    try:
+        # Construct module path: models.{model_name}.{model_name}
+        module_path = f"models.{model_name}.{model_name}"
+        
+        # Add the models directory to Python path if not already there
+        models_dir = this_dir / "models"
+        if str(models_dir) not in sys.path:
+            sys.path.insert(0, str(models_dir))
+        
+        # Import the module
+        model_module = importlib.import_module(module_path)
+        
+        # Get the model class (assuming class name is capitalized model_name + "v10" for YOLO, or just capitalized for others)
+        if model_name.lower() == "yolo":
+            model_class = getattr(model_module, "YOLOv10")
+        else:
+            # For other models, try common naming patterns
+            possible_names = [
+                model_name.upper(),  # ALL_CAPS
+                model_name.capitalize(),  # Capitalized
+                f"{model_name.capitalize()}Model",  # With "Model" suffix
+                f"{model_name.upper()}Model"  # ALL_CAPS with "Model" suffix
+            ]
+            
+            model_class = None
+            for name in possible_names:
+                if hasattr(model_module, name):
+                    model_class = getattr(model_module, name)
+                    break
+            
+            if model_class is None:
+                raise AttributeError(f"Could not find model class in {module_path}. Tried: {possible_names}")
+        
+        return model_class
+        
+    except ImportError as e:
+        raise ImportError(f"Could not import model from {module_path}: {e}")
 
 
 class YOLOv10:
-    def __init__(self, cache_dir):
-        from huggingface_hub import hf_hub_download
+    """YOLOv10 object detection model with ONNX runtime."""
 
-        # Initialize model
-        self.cache_dir = Path(cache_dir)
-        print(f"Initializing YOLO model from {self.cache_dir}")
-        model_file = hf_hub_download(
-            repo_id="onnx-community/yolov10n",
-            filename="onnx/model.onnx",
-            cache_dir=str(self.cache_dir),
-        )
-        self.initialize_model(model_file)
+    def __init__(self):
+        self.cache_dir = Path("/cache")
+        self.cache_dir.mkdir(exist_ok=True)
+        self.session = None
+        self.class_names = None
+        self.colors = None
+        
+        # Model dimensions - will be set when model is loaded
+        self.input_height = None
+        self.input_width = None
+        self.img_height = None
+        self.img_width = None
+        
+        # Model I/O details
+        self.input_names = None
+        self.output_names = None
+        
+        # Load the model
+        self.load_model()
         print("YOLO model initialized")
+
+    def load_model(self):
+        """Load the YOLO model from pre-downloaded weights or HuggingFace."""
+        model_paths = [
+            "/models/yolo/yolov10n.onnx",  # Pre-downloaded in volume
+            "/tmp/yolov10n.onnx",  # Fallback download location
+        ]
+        
+        model_file = None
+        for path in model_paths:
+            if os.path.exists(path):
+                model_file = path
+                print(f"Using model from {path}")
+                break
+        
+        if model_file is None:
+            # Download from HuggingFace as fallback
+            print("Downloading YOLOv10 model from HuggingFace...")
+            from huggingface_hub import hf_hub_download
+            
+            model_file = hf_hub_download(
+                repo_id="onnx-community/yolov10n",
+                filename="onnx/model.onnx",
+                local_dir="/tmp",
+                local_dir_use_symlinks=False,
+            )
+            print(f"Downloaded model to {model_file}")
+        
+        self.initialize_model(model_file)
 
     def initialize_model(self, model_file):
         self.session = onnxruntime.InferenceSession(
@@ -43,9 +135,25 @@ class YOLOv10:
         self.get_input_details()
         self.get_output_details()
 
-        # get class names
-        with open(this_dir / "yolo_classes.txt", "r") as f:
-            self.class_names = f.read().splitlines()
+        # Load class names from multiple possible paths
+        classes_file_paths = [
+            "/models/yolo/yolo_classes.txt",  # Pre-downloaded in volume
+            this_dir / "models" / "yolo" / "yolo_classes.txt",    # Local in models/yolo directory
+        ]
+        
+        self.class_names = None
+        for classes_file in classes_file_paths:
+            try:
+                with open(classes_file, "r") as f:
+                    self.class_names = f.read().splitlines()
+                    print(f"Loaded class names from {classes_file}")
+                    break
+            except (FileNotFoundError, OSError):
+                continue
+        
+        if self.class_names is None:
+            raise FileNotFoundError("Could not find yolo_classes.txt in any expected location")
+            
         rng = np.random.default_rng(3)
         self.colors = rng.uniform(0, 255, size=(len(self.class_names), 3))
 

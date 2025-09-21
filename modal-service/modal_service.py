@@ -2,10 +2,16 @@
 import base64
 import io
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Add current directory to Python path for local module imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 import modal
 
@@ -208,10 +214,6 @@ def get_model():
         import onnxruntime
         onnxruntime.preload_dlls()
         
-        # Import YOLOv10 from our local yolo_model.py file
-        import os
-        import sys
-
         # Import and use the local model implementation
         from import_model import YOLOv10
         

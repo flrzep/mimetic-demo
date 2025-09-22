@@ -66,16 +66,15 @@ image = (
         "pydantic"
     ])
     .add_local_python_source("import_model")
-    #.add_local_python_source("models")
-    .add_local_dir(".", remote_path="/app")
+    .add_local_dir("models", remote_path="/app/models")
 )
 
 # Create the Modal app with branch-based naming
 app = modal.App(app_name, image=image)
 
 # Create volumes for model caching and weights
-model_cache_volume = modal.Volume.from_name("yolo-models", create_if_missing=True)
-model_weights_volume = modal.Volume.from_name("model-weights-vol", create_if_missing=True)
+model_cache_volume = modal.Volume.from_name("models", create_if_missing=True)
+model_weights_volume = modal.Volume.from_name("cache", create_if_missing=True)
 
 MODEL_DIR = Path("/models")
 CACHE_DIR = Path("/cache")
@@ -115,13 +114,13 @@ def download_model_weights():
     destination = models_yolo_dir / "yolov10n.onnx"
     shutil.copy2(model_file, destination)
     
-    # Copy the class names file from the local models directory
-    local_classes_file = Path("models/yolo/yolo_classes.txt")
+    # Copy the class names file from the local models directory to the volume
+    local_classes_file = Path("/app/models/yolo/yolo_classes.txt")
     if local_classes_file.exists():
         shutil.copy2(local_classes_file, models_yolo_dir / "yolo_classes.txt")
         print(f"Class names copied from {local_classes_file}")
     else:
-        print("Warning: models/yolo/yolo_classes.txt not found, model will use fallback classes")
+        print("Warning: /app/models/yolo/yolo_classes.txt not found, model will use fallback classes")
     
     print(f"Model weights saved to {destination}")
     print(f"Class names saved to {models_yolo_dir / 'yolo_classes.txt'}")

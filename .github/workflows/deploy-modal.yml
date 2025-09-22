@@ -68,10 +68,24 @@ jobs:
           echo "app_name=$app_name" >> $GITHUB_OUTPUT
           echo "Deploying to Modal app: $app_name"
 
+      - name: Pre-download model weights
+        env:
+          MODAL_GPU_TYPE: ${{ vars.MODAL_GPU_TYPE || 'T4' }}  # Use environment variable or fallback to 'T4'
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          cd modal-service
+          echo "Pre-downloading model weights to Modal volumes..."
+          echo "Using GPU type: $MODAL_GPU_TYPE"
+          modal run modal_service.py::download_model_weights
+
       - name: Deploy service
+        env:
+          MODAL_GPU_TYPE: ${{ vars.MODAL_GPU_TYPE || 'T4' }}  # Use environment variable or fallback to 'T4'
+          GITHUB_REF: ${{ github.ref }}  # Explicitly pass GitHub ref
         run: |
           cd modal-service
           echo "Deploying Modal app: ${{ steps.app_name.outputs.app_name }}"
+          echo "Using GPU type: $MODAL_GPU_TYPE"
           
           # Ensure all required files exist
           echo "Checking required files..."
@@ -80,6 +94,16 @@ jobs:
           
           # Deploy the service
           modal deploy modal_service.py
+
+      - name: Verify deployment
+        env:
+          MODAL_GPU_TYPE: ${{ vars.MODAL_GPU_TYPE || 'T4' }}  # Use environment variable or fallback
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          cd modal-service
+          echo "Verifying deployment with model weight check..."
+          echo "Using GPU type: $MODAL_GPU_TYPE"
+          modal run modal_service.py::list_model_weights
 
       - name: Get deployment URL
         id: url

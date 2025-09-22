@@ -95,10 +95,10 @@ def scale_bbox_to_original(bbox, scale_factor: float):
     inverse_scale = 1.0 / scale_factor
     
     return {
-        "x": bbox["x"] * inverse_scale,
-        "y": bbox["y"] * inverse_scale, 
-        "width": bbox["width"] * inverse_scale,
-        "height": bbox["height"] * inverse_scale
+        "x": int(round(bbox["x"] * inverse_scale)),
+        "y": int(round(bbox["y"] * inverse_scale)), 
+        "width": int(round(bbox["width"] * inverse_scale)),
+        "height": int(round(bbox["height"] * inverse_scale))
     }
 
 

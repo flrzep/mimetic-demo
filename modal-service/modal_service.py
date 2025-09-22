@@ -67,6 +67,7 @@ image = (
     ])
     .add_local_python_source("import_model")
     #.add_local_python_source("models")
+    .add_local_dir("models", "/models")
 )
 
 # Create the Modal app with branch-based naming

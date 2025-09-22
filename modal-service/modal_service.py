@@ -10,12 +10,6 @@ from typing import Dict, List, Optional
 
 import modal
 
-# Add the app directory to Python path for local module imports
-app_dir = "/app"
-if app_dir not in sys.path:
-    sys.path.insert(0, app_dir)
-
-
 
 # Determine app name based on environment/branch
 def get_app_name():
@@ -38,7 +32,11 @@ def get_app_name():
 # Modal app configuration with dynamic name
 app_name = get_app_name()
 
+# GPU configuration from environment variable
+GPU_TYPE = os.getenv("MODAL_GPU_TYPE", "any")  # Default to "any" if not set
+
 print(f"Modal app name: {app_name}")
+print(f"Modal GPU type: {GPU_TYPE}")
 
 # Define the Modal image with required dependencies (recommended approach for Modal)
 image = (
@@ -67,7 +65,8 @@ image = (
         "huggingface-hub",
         "pydantic"
     ])
-    .add_local_dir(".", remote_path="/app")
+    .add_local_python_source("import_model")
+    #.add_local_python_source("models")
 )
 
 # Create the Modal app with branch-based naming
@@ -230,7 +229,7 @@ def get_model():
 
 @app.function(
     image=image,
-    gpu="any",
+    gpu=GPU_TYPE,
     volumes={
         "/cache": model_cache_volume,
         "/models": model_weights_volume
@@ -293,7 +292,7 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
 
 @app.function(
     image=image,
-    gpu="any",
+    gpu=GPU_TYPE,
     volumes={
         "/cache": model_cache_volume,
         "/models": model_weights_volume
@@ -485,8 +484,10 @@ if __name__ == "__main__":
     # For local development
     print("Modal CV Inference Service")
     print(f"App name: {app_name}")
+    print(f"GPU type: {GPU_TYPE}")
     print("Deploy with: modal deploy modal_service.py")
     print("For local dev with custom name: MODAL_APP_NAME=my-test-app modal deploy modal_service.py")
+    print("To set GPU type: MODAL_GPU_TYPE=a100 modal deploy modal_service.py")
     print()
     print("Available commands:")
     print("- Download model weights: modal run modal_service.py::download_model_weights")

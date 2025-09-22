@@ -56,7 +56,8 @@ def convert_to_base64(file_content: bytes) -> str:
     return base64.b64encode(file_content).decode("utf-8")
 
 
-def resize_image_if_needed(image_data: bytes, max_size: int = 1024) -> bytes:
+def resize_image_if_needed(image_data: bytes, max_size: int = 1024) -> Tuple[bytes, float]:
+    """Resize image if needed and return resized data and scaling factor"""
     logger.info(f"Checking if image resize needed (max_size: {max_size})")
     
     with Image.open(io.BytesIO(image_data)) as img:
@@ -68,7 +69,7 @@ def resize_image_if_needed(image_data: bytes, max_size: int = 1024) -> bytes:
         
         if max(w, h) <= max_size:
             logger.info("Image resize not needed")
-            return image_data
+            return image_data, 1.0  # No scaling applied
             
         ratio = max_size / float(max(w, h))
         new_size = (int(w * ratio), int(h * ratio))
@@ -81,7 +82,24 @@ def resize_image_if_needed(image_data: bytes, max_size: int = 1024) -> bytes:
         resized_data = out.getvalue()
         
         logger.info(f"Image resized successfully. New size: {len(resized_data)} bytes ({len(resized_data)/original_size:.2%} of original)")
-        return resized_data
+        return resized_data, ratio
+
+
+def scale_bbox_to_original(bbox, scale_factor: float):
+    """Scale bounding box coordinates from resized image back to original image"""
+    if scale_factor == 1.0:
+        return bbox  # No scaling needed
+    
+    # Scale factor is how much the image was scaled DOWN
+    # To get back to original coordinates, we need to scale UP (divide by scale_factor)
+    inverse_scale = 1.0 / scale_factor
+    
+    return {
+        "x": bbox["x"] * inverse_scale,
+        "y": bbox["y"] * inverse_scale, 
+        "width": bbox["width"] * inverse_scale,
+        "height": bbox["height"] * inverse_scale
+    }
 
 
 def log_request(endpoint: str, processing_time: float, success: bool, additional_info: Optional[dict] = None):

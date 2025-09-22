@@ -19,6 +19,9 @@ from pydantic import BaseModel
 # Modal app configuration
 app = modal.App("webrtc-streaming")
 
+# GPU configuration from environment variable
+GPU_TYPE = os.getenv("MODAL_GPU_TYPE", "any")  # Default to "any" if not set
+
 # Define the Modal image with required dependencies
 image = modal.Image.debian_slim(python_version="3.11").pip_install([
     "fastapi[all]",
@@ -45,7 +48,7 @@ class StreamFrame(BaseModel):
 
 @app.function(
     image=image,
-    gpu="any",  # Use GPU for inference
+    gpu=GPU_TYPE,  # Use GPU for inference
     scaledown_window=300,
     timeout=3600,
     concurrency_limit=10
@@ -57,7 +60,7 @@ def health():
 
 @app.function(
     image=image,
-    gpu="any",
+    gpu=GPU_TYPE,
     scaledown_window=300,
     timeout=3600,
     concurrency_limit=10
@@ -95,7 +98,7 @@ def predict_frame(frame_data: str, width: int = 640, height: int = 480) -> List[
 
 @app.function(
     image=image,
-    gpu="any",
+    gpu=GPU_TYPE,
     scaledown_window=300,
     timeout=3600,
     concurrency_limit=5
@@ -363,4 +366,6 @@ def web():
 if __name__ == "__main__":
     # For local development
     print("Modal WebRTC Streaming Service")
+    print(f"GPU type: {GPU_TYPE}")
     print("Deploy with: modal deploy webrtc_service.py")
+    print("To set GPU type: MODAL_GPU_TYPE=a100 modal deploy webrtc_service.py")

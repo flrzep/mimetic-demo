@@ -2,93 +2,325 @@
 import base64
 import io
 import os
+import sys
 import tempfile
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import modal
 
-# Modal app configuration
-app = modal.App("mimetic-demo")
 
-# Define the Modal image with required dependencies
-image = modal.Image.debian_slim(python_version="3.11").pip_install([
-    "fastapi[all]",
-    "pillow",
-    "opencv-python-headless",
-    "numpy",
-    "torch",
-    "torchvision", 
-    "ultralytics",  # For YOLO models
-    "pydantic"
-])
+# Determine app name based on environment/branch
+def get_app_name():
+    # Check for GitHub Actions environment variable
+    github_ref = os.getenv("GITHUB_REF", "")
+    if github_ref:
+        # Extract branch name from refs/heads/branch-name
+        if github_ref.startswith("refs/heads/"):
+            branch = github_ref[11:]  # Remove "refs/heads/"
+            if branch == "main":
+                return "mimetic-demo"
+            else:
+                # Sanitize branch name for Modal (replace special chars with hyphens)
+                safe_branch = branch.replace("/", "-").replace("_", "-").replace(".", "-")
+                return f"mimetic-demo-{safe_branch}"
+    
+    # Local development or fallback
+    return os.getenv("MODAL_APP_NAME", "mimetic-demo-dev")
+
+# Modal app configuration with dynamic name
+app_name = get_app_name()
+
+# GPU configuration from environment variable
+GPU_TYPE = os.getenv("MODAL_GPU_TYPE", "any")  # Default to "any" if not set
+
+print(f"Modal app name: {app_name}")
+print(f"Modal GPU type: {GPU_TYPE}")
+
+# Define the Modal image with required dependencies (recommended approach for Modal)
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install([
+        "libgl1-mesa-dev",
+        "libglib2.0-0", 
+        "libsm6",
+        "libxext6",
+        "libxrender-dev",
+        "libgomp1",
+        "libgcc-s1"
+    ])
+    .pip_install([
+        "fastapi[all]",
+        "pillow",
+        "opencv-python-headless",
+        "numpy",
+        "torch",
+        "torchvision", 
+        "onnxruntime",
+        "transformers",
+        "datasets",
+        "accelerate",
+        "timm",
+        "huggingface-hub",
+        "pydantic"
+    ])
+    .add_local_python_source("import_model")
+    .add_local_dir("models", remote_path="/app/models")
+)
+
+# Create the Modal app with branch-based naming
+app = modal.App(app_name, image=image)
+
+# Create volumes for model caching and weights
+model_cache_volume = modal.Volume.from_name("models", create_if_missing=True)
+model_weights_volume = modal.Volume.from_name("cache", create_if_missing=True)
+
+MODEL_DIR = Path("/models")
+CACHE_DIR = Path("/cache")
+
+# Pre-download YOLO model weights function
+@app.function(
+    image=image,
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
+    timeout=3600
+)
+def download_model_weights():
+    """Pre-download and cache YOLO model weights"""
+    import shutil
+
+    from huggingface_hub import hf_hub_download
+    
+    print("Downloading YOLO model weights...")
+    
+    # Download to cache first
+    cache_path = CACHE_DIR / "yolo"
+    cache_path.mkdir(parents=True, exist_ok=True)
+    
+    model_file = hf_hub_download(
+        repo_id="onnx-community/yolov10n",
+        filename="onnx/model.onnx",
+        cache_dir=str(cache_path),
+    )
+    
+    # Copy to persistent model weights volume
+    models_yolo_dir = MODEL_DIR / "yolo"
+    models_yolo_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Copy the downloaded model to the weights volume
+    destination = models_yolo_dir / "yolov10n.onnx"
+    shutil.copy2(model_file, destination)
+    
+    # Copy the class names file from the local models directory to the volume
+    local_classes_file = Path("/app/models/yolo/yolo_classes.txt")
+    if local_classes_file.exists():
+        shutil.copy2(local_classes_file, models_yolo_dir / "yolo_classes.txt")
+        print(f"Class names copied from {local_classes_file}")
+    else:
+        print("Warning: /app/models/yolo/yolo_classes.txt not found, model will use fallback classes")
+    
+    print(f"Model weights saved to {destination}")
+    print(f"Class names saved to {models_yolo_dir / 'yolo_classes.txt'}")
+    return str(destination)
 
 @app.function(
     image=image,
-    gpu="any",
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    }
+)
+def list_model_weights():
+    """List all model weights currently stored in the Modal volumes"""
+    import os
+    from pathlib import Path
+    
+    print("Checking Modal volumes for model weights...")
+    
+    results = {
+        "models_volume": {},
+        "cache_volume": {}
+    }
+    
+    # Check /models volume
+    models_path = Path("/models")
+    print(f"Checking /models volume at {models_path}")
+    if models_path.exists():
+        print(f"/models exists, listing contents...")
+        for model_dir in models_path.iterdir():
+            print(f"Found directory: {model_dir}")
+            if model_dir.is_dir():
+                files = []
+                total_size = 0
+                for file in model_dir.rglob("*"):
+                    if file.is_file():
+                        size = file.stat().st_size
+                        files.append({
+                            "name": file.name,
+                            "path": str(file.relative_to(models_path)),
+                            "size_mb": round(size / (1024 * 1024), 2)
+                        })
+                        total_size += size
+                        print(f"  File: {file.name} ({round(size / (1024 * 1024), 2)} MB)")
+                
+                results["models_volume"][model_dir.name] = {
+                    "files": files,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2)
+                }
+    else:
+        print("/models does not exist")
+    
+    # Check /cache volume
+    cache_path = Path("/cache")
+    print(f"Checking /cache volume at {cache_path}")
+    if cache_path.exists():
+        print(f"/cache exists, listing contents...")
+        for item in cache_path.iterdir():
+            print(f"Found in cache: {item}")
+            if item.is_dir():
+                files = []
+                total_size = 0
+                for file in item.rglob("*"):
+                    if file.is_file():
+                        size = file.stat().st_size
+                        files.append({
+                            "name": file.name,
+                            "path": str(file.relative_to(cache_path)),
+                            "size_mb": round(size / (1024 * 1024), 2)
+                        })
+                        total_size += size
+                
+                results["cache_volume"][item.name] = {
+                    "files": files,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2)
+                }
+    else:
+        print("/cache does not exist")
+    
+    print(f"Final results: {results}")
+    return results
+
+# Global variable to store the model instance
+model = None
+
+def get_model():
+    """Initialize model once and reuse across function calls"""
+    global model
+    if model is None:
+        print("Loading model...")
+        
+        import onnxruntime
+        onnxruntime.preload_dlls()
+        
+        # Import and use the local model implementation
+        from import_model import YOLOv10
+        
+        cache_path = "/cache/yolo"
+        os.makedirs(cache_path, exist_ok=True)
+        
+        # Initialize the model
+        model = YOLOv10()
+        print("Model loaded successfully")
+        
+    return model
+
+@app.function(
+    image=image,
+    gpu=GPU_TYPE,
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
     scaledown_window=300,
     timeout=3600
 )
 def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:
-    
     '''
-    Run inference on a single image
-    Replace this with your actual model inference
+    Run object detection inference on a single image
     '''
 
     try:
         # Import inside function to avoid Modal deployment issues
+        import cv2
+        import numpy as np
         from PIL import Image
+
+        print(f"Processing image with model: {width}x{height}")
+
+        # Get the shared model instance
+        model = get_model()
 
         # Decode base64 image
         image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes))
+        pil_image = Image.open(io.BytesIO(image_bytes))
         
-        # Mock prediction - replace with your actual model
-        # Example with YOLO or other object detection model:
-        # model = YOLO('yolov8n.pt')  # or load your custom model
-        # results = model(image)
-        # predictions = process_results(results, width, height)
+        # Convert PIL to OpenCV format
+        cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
         
-        # Mock predictions for now
-        predictions = [
-            {
-                "class_id": 0,
-                "confidence": 0.95,
-                "label": "detected_object",
+        # Run YOLO inference
+        print("Running YOLOv10 inference...")
+        results = model.predict(cv_image)
+        
+        # Convert to our API format
+        predictions = []
+        for result in results:
+            x1, y1, x2, y2 = result["bbox"]
+            predictions.append({
+                "class_id": model.class_names.index(result["class"]),
+                "confidence": result["confidence"],
+                "label": result["class"],
                 "bbox": {
-                    "x": width * 0.2,
-                    "y": height * 0.2,
-                    "width": width * 0.4,
-                    "height": height * 0.3
+                    "x": float(x1),
+                    "y": float(y1),
+                    "width": float(x2 - x1),
+                    "height": float(y2 - y1)
                 }
-            }
-        ]
+            })
         
+        print(f"YOLOv10 detected {len(predictions)} objects")
         return predictions
         
     except Exception as e:
-        print(f"Error processing image: {e}")
-        return []
+        print(f"Error processing image with YOLOv10: {e}")
+        import traceback
+        traceback.print_exc()
+        # Re-raise the exception instead of returning mock data
+        raise e
 
 @app.function(
     image=image,
-    gpu="any",
+    gpu=GPU_TYPE,
+    volumes={
+        "/cache": model_cache_volume,
+        "/models": model_weights_volume
+    },
     scaledown_window=300,
     timeout=3600
 )
 def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
     '''
-    Process entire video and return predictions for all frames
+    Process entire video with object detection and return predictions for all frames
     This is more efficient than processing frames individually
     '''
     
     try:
         # Import inside function to avoid Modal deployment issues
+        import os
+
         import cv2
         import numpy as np
+
+        # Set environment variables for headless OpenCV
+        os.environ['DISPLAY'] = ''
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
-        print(f"Starting video processing with frame_skip={frame_skip}")
+        print(f"Starting video processing with model, frame_skip={frame_skip}")
+        
+        # Get the shared model instance
+        model = get_model()
         
         # Decode base64 video
         video_bytes = base64.b64decode(video_b64)
@@ -111,9 +343,6 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         
         print(f"Video properties: {video_width}x{video_height}, fps={fps}")
         
-        # Initialize model once (this is the key efficiency gain)
-        # model = YOLO('yolov8n.pt')  # Load your model once here
-        
         processed_frames = []
         frame_count = 0
         
@@ -127,37 +356,34 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
                 if frame_count % frame_skip == 0:
                     timestamp = frame_count / fps if fps > 0 else frame_count * 0.033  # fallback to ~30fps
                     
-                    # Run inference on this frame
-                    # For now, mock predictions. Replace with:
-                    # results = model(frame)
-                    # frame_predictions = process_model_results(results, video_width, video_height)
+                    # Run YOLOv10 inference on this frame
+                    print(f"Processing frame {frame_count} at timestamp {timestamp:.2f}s")
                     
-                    # Mock predictions with some variation
-                    import random
-                    frame_predictions = [
-                        {
-                            "class_id": 0,
-                            "confidence": round(random.uniform(0.85, 0.98), 2),
-                            "label": "person",
-                            "bbox": {
-                                "x": random.randint(50, max(51, video_width // 2)),
-                                "y": random.randint(30, max(31, video_height // 3)),
-                                "width": random.randint(video_width // 4, video_width // 2),
-                                "height": random.randint(video_height // 3, video_height // 2)
-                            }
-                        },
-                        {
-                            "class_id": 1,
-                            "confidence": round(random.uniform(0.75, 0.95), 2),
-                            "label": "car",
-                            "bbox": {
-                                "x": random.randint(video_width // 2, max(video_width // 2 + 1, video_width - 300)),
-                                "y": random.randint(video_height // 3, max(video_height // 3 + 1, video_height // 2)),
-                                "width": random.randint(video_width // 3, video_width // 2),
-                                "height": random.randint(video_height // 5, video_height // 3)
-                            }
-                        }
-                    ]
+                    try:
+                        # Run YOLO inference
+                        results = model.predict(frame)
+                        
+                        # Convert to our API format
+                        frame_predictions = []
+                        for result in results:
+                            x1, y1, x2, y2 = result["bbox"]
+                            frame_predictions.append({
+                                "class_id": model.class_names.index(result["class"]),
+                                "confidence": result["confidence"],
+                                "label": result["class"],
+                                "bbox": {
+                                    "x": float(x1),
+                                    "y": float(y1),
+                                    "width": float(x2 - x1),
+                                    "height": float(y2 - y1)
+                                }
+                            })
+                        
+                        print(f"Frame {frame_count}: detected {len(frame_predictions)} objects")
+                        
+                    except Exception as frame_error:
+                        print(f"Error processing frame {frame_count}: {frame_error}")
+                        frame_predictions = []  # Empty predictions for failed frames
                     
                     # Create frame data structure
                     frame_data = {
@@ -183,6 +409,8 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         
     except Exception as e:
         print(f"Error processing video: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 # Create FastAPI app inside function to avoid import issues
@@ -255,4 +483,13 @@ def web():
 if __name__ == "__main__":
     # For local development
     print("Modal CV Inference Service")
+    print(f"App name: {app_name}")
+    print(f"GPU type: {GPU_TYPE}")
     print("Deploy with: modal deploy modal_service.py")
+    print("For local dev with custom name: MODAL_APP_NAME=my-test-app modal deploy modal_service.py")
+    print("To set GPU type: MODAL_GPU_TYPE=a100 modal deploy modal_service.py")
+    print()
+    print("Available commands:")
+    print("- Download model weights: modal run modal_service.py::download_model_weights")
+    print("- Process single image: modal run modal_service.py::process_image --image-b64 <base64_string>")
+    print("- Start web server: modal serve modal_service.py")

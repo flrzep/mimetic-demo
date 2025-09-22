@@ -8,10 +8,37 @@
   --panel: #111827;
   --panel-2: #0b1220;
   --text: #e5e7eb;
+  color-scheme: dark;
 }
 
-html, body, #__next { height: 100%; }
-body { @apply font-sans; }
+/* Ensure consistent dark background across all elements */
+html {
+  background-color: #0f172a !important;
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0f172a !important;
+  color: #e5e7eb;
+  min-height: 100vh;
+  @apply font-sans;
+}
+
+html, body, #__next { 
+  height: 100%; 
+  background-color: #0f172a;
+}
+
+/* Prevent white flash during page transitions */
+* {
+  box-sizing: border-box;
+}
+
+/* Ensure dark scrollbars */
+html {
+  scrollbar-color: #475569 #1e293b;
+  scrollbar-width: thin;
+}
 
 /* Minimal custom atoms (spinner dots) */
 .spinner { @apply inline-flex gap-2; }

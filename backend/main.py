@@ -29,12 +29,14 @@ from jose import jwt
 from models import (BoundingBox, HealthResponse, PredictionResponse,
                     PredictionResult, VideoFrame, VideoProcessingRequest,
                     VideoProcessingResponse)
+from PIL import Image
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.websockets import WebSocketState
 from utils.helpers import (convert_to_base64, log_processing_step, log_request,
                            log_video_processing, resize_image_if_needed,
-                           validate_image_file, validate_video_file)
+                           scale_bbox_to_original, validate_image_file,
+                           validate_video_file)
 
 # Configure main logger
 logger = logging.getLogger(__name__)
@@ -632,13 +634,27 @@ async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
         
         logger.info(f"Original image dimensions: {original_width}x{original_height}")
         
-        resized = resize_image_if_needed(contents)
+        resized, scale_factor = resize_image_if_needed(contents)
         image_b64 = convert_to_base64(resized)
         
-        log_processing_step("Sending image for prediction")
+        log_processing_step("Sending image for prediction", {
+            "scale_factor": f"{scale_factor:.3f}"
+        })
         
-        # Use original image dimensions for coordinate generation, not resized dimensions
-        preds = await predict_with_modal(image_b64, image_width=original_width, image_height=original_height)
+        # Send resized image dimensions to Modal (not original dimensions)
+        # We'll scale the coordinates back afterward
+        with Image.open(io.BytesIO(resized)) as resized_img:
+            resized_width, resized_height = resized_img.size
+        
+        preds = await predict_with_modal(image_b64, image_width=resized_width, image_height=resized_height)
+        
+        # Scale bounding boxes back to original image coordinates
+        if scale_factor != 1.0:
+            log_processing_step(f"Scaling {len(preds)} bounding boxes back to original coordinates")
+            for pred in preds:
+                if pred.bbox:
+                    scaled_bbox = scale_bbox_to_original(pred.bbox.model_dump(), scale_factor)
+                    pred.bbox = BoundingBox(**scaled_bbox)
         
         elapsed = time.perf_counter() - t0
         resp = PredictionResponse(success=True, predictions=preds, processing_time=elapsed)

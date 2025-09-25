@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Timer, Image as ImageIcon, Video, Radio, ChevronDown, Brain } from 'lucide-react';
-import { ImageUpload, VideoUpload, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults, VideoDownloader } from '../components';
+import { ImageUpload, VideoUpload, VideoOptions, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults, VideoDownloader } from '../components';
 import CameraModal from '../components/CameraModal';
 import VideoOverlay from '../components/VideoOverlay';
 import ImageOverlay from '../components/ImageOverlay';
@@ -101,6 +101,19 @@ export default function Page() {
   const [isVideoProcessing, setIsVideoProcessing] = useState(false);
   const [videoPlaybackError, setVideoPlaybackError] = useState(false);
   const [hideProcessedVideo, setHideProcessedVideo] = useState(false);
+  
+  // Video options state
+  const [frameInterval, setFrameInterval] = useState(10);  // Process every 10th frame by default
+  const [maxFrames, setMaxFrames] = useState<number | null>(300);  // Limit to 300 frames by default
+  const [videoMetadata, setVideoMetadata] = useState<{
+    name: string;
+    size: number;
+    type: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+    fps?: number;
+  } | null>(null);
   
   // Stream processing state
   const [isStreaming, setIsStreaming] = useState(false);
@@ -205,6 +218,67 @@ export default function Page() {
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // Extract video metadata when video file changes
+  useEffect(() => {
+    if (!videoFile) {
+      setVideoMetadata(null);
+      return;
+    }
+
+    const extractMetadata = async () => {
+      try {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        const url = URL.createObjectURL(videoFile);
+        
+        const metadata = await new Promise<{
+          duration: number;
+          width: number;
+          height: number;
+          fps: number;
+        }>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            // Estimate FPS (not always accurate but gives an idea)
+            const fps = 30; // Default assumption, could be improved with better detection
+            
+            resolve({
+              duration: video.duration,
+              width: video.videoWidth,
+              height: video.videoHeight,
+              fps: fps
+            });
+          };
+          
+          video.onerror = () => reject(new Error('Failed to load video metadata'));
+          video.src = url;
+        });
+
+        setVideoMetadata({
+          name: videoFile.name,
+          size: videoFile.size,
+          type: videoFile.type,
+          duration: metadata.duration,
+          width: metadata.width,
+          height: metadata.height,
+          fps: metadata.fps
+        });
+
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.warn('Failed to extract video metadata:', error);
+        // Set basic metadata even if detailed extraction fails
+        setVideoMetadata({
+          name: videoFile.name,
+          size: videoFile.size,
+          type: videoFile.type
+        });
+      }
+    };
+
+    extractMetadata();
+  }, [videoFile]);
 
   useEffect(() => {
     if (!videoFile) return;
@@ -337,8 +411,8 @@ export default function Page() {
       });
       
       const options = {
-        frame_interval: 1, // Process every frame
-        max_frames: 300,   // Limit to 300 frames for demo
+        frame_interval: frameInterval, // Use configured frame interval
+        max_frames: maxFrames,         // Use configured max frames (can be null for no limit)
         output_format: detectedFormat, // Use detected format to preserve original
         video_codec: detectedFormat === 'webm' ? 'vp8' : 'h264', // Correct codec mapping
         audio_codec: 'none',  // No audio track
@@ -421,7 +495,7 @@ export default function Page() {
     } finally { 
       setIsVideoProcessing(false); 
     }
-  }, [videoFile, selectedModel]);
+  }, [videoFile, selectedModel, frameInterval, maxFrames]);
 
   const resetVideo = useCallback(() => {
     // Clean up blob URLs before resetting
@@ -752,6 +826,17 @@ export default function Page() {
                 onOpenCamera={() => openCamera('video')}
               />
             </section>
+
+            {videoFile && (
+              <VideoOptions
+                frameInterval={frameInterval}
+                maxFrames={maxFrames}
+                onFrameIntervalChange={setFrameInterval}
+                onMaxFramesChange={setMaxFrames}
+                videoMetadata={videoMetadata}
+                isProcessing={isVideoProcessing}
+              />
+            )}
 
             <section className="grid gap-3">
               {isVideoProcessing && (

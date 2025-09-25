@@ -391,10 +391,10 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
             raise
 
 
-async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: str = "yolo") -> List[VideoFrame]:
+async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: str = "yolo", max_frames: Optional[int] = None) -> List[VideoFrame]:
     """Process entire video using Modal API and return structured VideoFrame data"""
     
-    logger.info(f"process_video_with_modal called with model: {model}")
+    logger.info(f"process_video_with_modal called with model: {model}, frame_skip: {frame_skip}, max_frames: {max_frames}")
     
     if USE_MOCK_MODAL:
         # Use mock video processing for development/testing
@@ -403,7 +403,12 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: 
         
         # Generate mock video frames 
         mock_frames = []
-        for i in range(0, 100, frame_skip):  # Mock 100 frames total
+        total_mock_frames = 100  # Mock 100 frames total
+        frame_count = 0
+        
+        for i in range(0, total_mock_frames, frame_skip):
+            if max_frames and frame_count >= max_frames:
+                break  # Stop if we've reached the max frame limit
             timestamp = i * 0.033  # ~30fps
             
             # Generate random predictions for this frame
@@ -437,8 +442,9 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: 
                 timestamp=timestamp,
                 predictions=mock_predictions
             ))
+            frame_count += 1
         
-        logger.info(f"Generated {len(mock_frames)} mock video frames")
+        logger.info(f"Generated {len(mock_frames)} mock video frames (max_frames: {max_frames})")
         return mock_frames
     
     else:
@@ -450,7 +456,9 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: 
         
         try:
             payload = {"video": video_b64, "frame_skip": frame_skip, "model": model}
-            logger.info(f"Modal video API payload model: {payload.get('model')}")
+            if max_frames is not None:
+                payload["max_frames"] = max_frames
+            logger.info(f"Modal video API payload: model={payload.get('model')}, frame_skip={payload.get('frame_skip')}, max_frames={payload.get('max_frames')}")
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT * 3) as client:  # Longer timeout for video
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/process_video",
@@ -556,12 +564,14 @@ async def predict_video(request: VideoProcessingRequest):
         
         logger.info(f"Input format: {input_extension}, Output format: {output_format}")
         
-        # Use new Modal video processing approach - send entire video to Modal
-        frame_skip = 10  # Process every 10th frame
-        logger.info(f"Processing video with Modal (frame_skip={frame_skip})")
+        # Use video processing options from request
+        frame_skip = request.frame_interval or 10  # Use request frame interval or default to 10
+        max_frames = request.max_frames  # Use request max frames (can be None)
+        
+        logger.info(f"Processing video with Modal (frame_skip={frame_skip}, max_frames={max_frames})")
         
         # Process entire video using Modal API
-        processed_frames = await process_video_with_modal(request.video_data, frame_skip, request.model)
+        processed_frames = await process_video_with_modal(request.video_data, frame_skip, request.model, max_frames)
         logger.info(f"Received {len(processed_frames)} processed frames from Modal")
         
         # Return response with frame predictions (no video encoding needed for client-side overlay)

@@ -293,9 +293,11 @@ async def get_available_models():
 async def predict_with_modal(image_b64: str, image_width: int = 640, image_height: int = 480, model: str = "yolo") -> List[PredictionResult]:
     """Single unified function to get predictions from Modal API or return mock predictions"""
     
+    logger.info(f"predict_with_modal called with model: {model}")
+    
     if USE_MOCK_MODAL:
         # Use mock predictions for development/testing
-        logger.info("Using mock Modal predictions")
+        logger.info(f"Using mock Modal predictions for model: {model}")
         await asyncio.sleep(0.1)  # Simulate API delay
         
         # Generate random predictions with randomized positions and sizes
@@ -339,16 +341,18 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
     
     else:
         # Use real Modal API for production
-        logger.info("Calling real Modal API")
+        logger.info(f"Calling real Modal API with model: {model}")
         if not MODAL_ENDPOINT_URL:
             logger.error("Modal endpoint URL not configured for production")
             raise ValueError("Modal API not configured")
         
         try:
+            payload = {"image": image_b64, "width": image_width, "height": image_height, "model": model}
+            logger.info(f"Modal API payload model: {payload.get('model')}")
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/predict",
-                    json={"image": image_b64, "width": image_width, "height": image_height, "model": model}
+                    json=payload
                 )
                 response.raise_for_status()
                 
@@ -390,9 +394,11 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
 async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: str = "yolo") -> List[VideoFrame]:
     """Process entire video using Modal API and return structured VideoFrame data"""
     
+    logger.info(f"process_video_with_modal called with model: {model}")
+    
     if USE_MOCK_MODAL:
         # Use mock video processing for development/testing
-        logger.info("Using mock Modal video processing")
+        logger.info(f"Using mock Modal video processing for model: {model}")
         await asyncio.sleep(1.0)  # Simulate longer processing time for video
         
         # Generate mock video frames 
@@ -437,16 +443,18 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: 
     
     else:
         # Use real Modal API for production
-        logger.info("Calling real Modal video processing API")
+        logger.info(f"Calling real Modal video processing API with model: {model}")
         if not MODAL_ENDPOINT_URL:
             logger.error("Modal endpoint URL not configured for production")
             raise ValueError("Modal API not configured")
         
         try:
+            payload = {"video": video_b64, "frame_skip": frame_skip, "model": model}
+            logger.info(f"Modal video API payload model: {payload.get('model')}")
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT * 3) as client:  # Longer timeout for video
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/process_video",
-                    json={"video": video_b64, "frame_skip": frame_skip, "model": model}
+                    json=payload
                 )
                 response.raise_for_status()
                 
@@ -524,7 +532,7 @@ async def save_temp_video(video_data: bytes) -> str:
 async def predict_video(request: VideoProcessingRequest):
     """Process video with ML model using efficient Modal batch processing"""
     try:
-        logger.info(f"Starting video processing for file: {request.filename}")
+        logger.info(f"Starting video processing for file: {request.filename}, model: {request.model}")
         logger.info(f"Video data length: {len(request.video_data)} characters")
         logger.info(f"Requested codec: {request.video_codec}, format: {request.output_format}")
         
@@ -660,7 +668,7 @@ async def video_websocket(websocket: WebSocket):
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile = File(...), model: str = "yolo", _user=Depends(auth_dep)):
-    logger.info(f"Image prediction request received: {file.filename}, size: {file.size} bytes")
+    logger.info(f"Image prediction request received: {file.filename}, size: {file.size} bytes, model: {model}")
     
     client_key = "default"
     if not limiter.allow(client_key):
@@ -702,6 +710,7 @@ async def predict(file: UploadFile = File(...), model: str = "yolo", _user=Depen
         with Image.open(io.BytesIO(resized)) as resized_img:
             resized_width, resized_height = resized_img.size
         
+        logger.info(f"Calling predict_with_modal with model: {model}")
         preds = await predict_with_modal(image_b64, image_width=resized_width, image_height=resized_height, model=model)
         
         # Scale bounding boxes back to original image coordinates

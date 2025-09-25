@@ -293,7 +293,7 @@ export default function Page() {
         : e.response?.data?.message || e.message || 'An error occurred during prediction.';
       setError(msg);
     } finally { setIsLoading(false); }
-  }, [file]);
+  }, [file, selectedModel]);
 
   // Video processing handlers
   const canProcessVideo = useMemo(() => !!videoFile && !isVideoProcessing, [videoFile, isVideoProcessing]);
@@ -421,7 +421,7 @@ export default function Page() {
     } finally { 
       setIsVideoProcessing(false); 
     }
-  }, [videoFile]);
+  }, [videoFile, selectedModel]);
 
   const resetVideo = useCallback(() => {
     // Clean up blob URLs before resetting

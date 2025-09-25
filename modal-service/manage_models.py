@@ -82,6 +82,7 @@ def download_yolo_model():
     print(f"✅ Class names saved to {models_yolo_dir / 'yolo_classes.txt'}")
     return str(destination)
 
+
 @management_app.function(
     image=management_image,
     volumes={"/models": model_volume},

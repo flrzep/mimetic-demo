@@ -234,7 +234,63 @@ async def health():
     )
 
 
-async def predict_with_modal(image_b64: str, image_width: int = 640, image_height: int = 480) -> List[PredictionResult]:
+@app.get("/models")
+async def get_available_models():
+    """Get available models from Modal service"""
+    try:
+        if USE_MOCK_MODAL:
+            # Return mock models for development
+            return {
+                "success": True,
+                "models": [
+                    {
+                        "id": "yolo",
+                        "name": "YOLOv10",
+                        "description": "Real-time object detection and localization with high accuracy",
+                        "category": "detection",
+                        "recommended": True,
+                        "performance": {
+                            "speed": "fast",
+                            "accuracy": "high",
+                            "size": "2GB"
+                        }
+                    },
+                    {
+                        "id": "efficientnet",
+                        "name": "EfficientNet-B4",
+                        "description": "Efficiently scaled convolutional neural network with compound scaling",
+                        "category": "classification",
+                        "recommended": False,
+                        "performance": {
+                            "speed": "medium",
+                            "accuracy": "very_high", 
+                            "size": "1.5GB"
+                        }
+                    }
+                ]
+            }
+        
+        if not MODAL_ENDPOINT_URL:
+            raise HTTPException(status_code=503, detail="Modal endpoint not configured")
+            
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            response = await client.get(f"{MODAL_ENDPOINT_URL}/models")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Modal models request failed: {response.status_code}")
+                raise HTTPException(status_code=503, detail="Failed to fetch models from service")
+                
+    except httpx.RequestError as e:
+        logger.error(f"Error fetching models from Modal: {e}")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching models: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def predict_with_modal(image_b64: str, image_width: int = 640, image_height: int = 480, model: str = "yolo") -> List[PredictionResult]:
     """Single unified function to get predictions from Modal API or return mock predictions"""
     
     if USE_MOCK_MODAL:
@@ -292,7 +348,7 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/predict",
-                    json={"image": image_b64, "width": image_width, "height": image_height}
+                    json={"image": image_b64, "width": image_width, "height": image_height, "model": model}
                 )
                 response.raise_for_status()
                 
@@ -331,7 +387,7 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
             raise
 
 
-async def process_video_with_modal(video_b64: str, frame_skip: int = 10) -> List[VideoFrame]:
+async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: str = "yolo") -> List[VideoFrame]:
     """Process entire video using Modal API and return structured VideoFrame data"""
     
     if USE_MOCK_MODAL:
@@ -390,7 +446,7 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10) -> List
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT * 3) as client:  # Longer timeout for video
                 response = await client.post(
                     f"{MODAL_ENDPOINT_URL}/process_video",
-                    json={"video": video_b64, "frame_skip": frame_skip}
+                    json={"video": video_b64, "frame_skip": frame_skip, "model": model}
                 )
                 response.raise_for_status()
                 
@@ -497,7 +553,7 @@ async def predict_video(request: VideoProcessingRequest):
         logger.info(f"Processing video with Modal (frame_skip={frame_skip})")
         
         # Process entire video using Modal API
-        processed_frames = await process_video_with_modal(request.video_data, frame_skip)
+        processed_frames = await process_video_with_modal(request.video_data, frame_skip, request.model)
         logger.info(f"Received {len(processed_frames)} processed frames from Modal")
         
         # Return response with frame predictions (no video encoding needed for client-side overlay)
@@ -603,7 +659,7 @@ async def video_websocket(websocket: WebSocket):
 
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
+async def predict(file: UploadFile = File(...), model: str = "yolo", _user=Depends(auth_dep)):
     logger.info(f"Image prediction request received: {file.filename}, size: {file.size} bytes")
     
     client_key = "default"
@@ -646,7 +702,7 @@ async def predict(file: UploadFile = File(...), _user=Depends(auth_dep)):
         with Image.open(io.BytesIO(resized)) as resized_img:
             resized_width, resized_height = resized_img.size
         
-        preds = await predict_with_modal(image_b64, image_width=resized_width, image_height=resized_height)
+        preds = await predict_with_modal(image_b64, image_width=resized_width, image_height=resized_height, model=model)
         
         # Scale bounding boxes back to original image coordinates
         if scale_factor != 1.0:

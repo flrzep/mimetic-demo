@@ -45,10 +45,36 @@ export async function checkHealth() {
   }
 }
 
+export async function getAvailableModels() {
+  try {
+    const res = await api.get('/models', { timeout: 10000 });
+    if (res.data?.success) {
+      return {
+        success: true,
+        models: res.data.models || [],
+        categories: res.data.categories || {},
+        total: res.data.total_models || 0
+      };
+    } else {
+      throw new Error(res.data?.error || 'Failed to fetch models');
+    }
+  } catch (e) {
+    console.error('Error fetching models:', e);
+    return {
+      success: false,
+      error: e.message || 'Failed to fetch available models',
+      models: [],
+      categories: {},
+      total: 0
+    };
+  }
+}
+
 // Image prediction with progress tracking
-export const predictImage = async (imageFile, onProgress) => {
+export const predictImage = async (imageFile, model = 'yolo', onProgress) => {
   const formData = new FormData();
   formData.append('file', imageFile);
+  formData.append('model', model);
   return api.post(ENDPOINTS.predict, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: onProgress,
@@ -75,7 +101,8 @@ export const predictVideo = async (videoFile, options = {}, onProgress) => {
     filename: videoFile.name,
     video_codec: options.video_codec || "h264",
     audio_codec: options.audio_codec || "none", 
-    return_url: options.return_url || false
+    return_url: options.return_url || false,
+    model: options.model || "yolo"
   };
   
   return api.post(ENDPOINTS.predictVideo, payload, {

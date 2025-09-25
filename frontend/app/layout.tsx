@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Mimetic Demo',
-  description: 'Test our Computer Vision Models',
+  title: 'SMS CV Demo',
+  description: 'Test Computer Vision Models',
   viewport: 'width=device-width, initial-scale=1',
   icons: {
     icon: '/logo-white-fade.png',

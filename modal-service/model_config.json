@@ -1,0 +1,113 @@
+{
+  "models": {
+    "yolo": {
+      "name": "YOLOv10",
+      "description": "Real-time object detection and localization with high accuracy",
+      "category": "detection",
+      "recommended": true,
+      "input_types": ["image", "video"],
+      "output_format": "bounding_boxes",
+      "files": {
+        "folder": "yolo",
+        "weights": "yolov10b.pt",
+        "classes": "yolo_classes.txt",
+        "config": null
+      },
+      "model_type": "pytorch",
+      "performance": {
+        "speed": "fast",
+        "accuracy": "high",
+        "gpu_memory": "2GB"
+      },
+      "use_cases": [
+        "Object detection in images",
+        "Real-time video analysis",
+        "Security and surveillance",
+        "Quality control"
+      ],
+      "supported_classes": 80,
+      "max_detections": 100
+    },
+    "keypoint_rcnn": {
+      "name": "Keypoint R-CNN",
+      "description": "Deep residual network for keypoint detection with 50 layers",
+      "category": "keypoint_detection",
+      "recommended": false,
+      "input_types": ["image"],
+      "output_format": "keypoints, bounding_boxes",
+      "files": {
+        "folder": "keypoint_rcnn",
+        "weights": "keypointsrcnn_weights_v3.pth",
+        "classes": "keypointsrcnn_classes.txt",
+        "config": null
+      },
+      "model_type": "pytorch",
+      "performance": {
+        "speed": "medium",
+        "accuracy": "high",
+        "gpu_memory": "1GB"
+      },
+      "use_cases": [
+        "General keypoint detection",
+        "Pose estimation",
+        "Human-computer interaction"
+      ],
+      "supported_classes": 1000,
+      "dataset": "ImageNet"
+    },
+    "yolo_onnx": {
+      "name": "YOLOv10 ONNX",
+      "description": "ONNX optimized version of YOLOv10 for faster inference",
+      "category": "detection",
+      "recommended": false,
+      "input_types": ["image", "video"],
+      "output_format": "bounding_boxes",
+      "files": {
+        "folder": "yolo_onnx",
+        "weights": "yolov10n.onnx",
+        "classes": "yolo_classes.txt",
+        "config": null
+      },
+      "model_type": "onnx",
+      "performance": {
+        "speed": "very_fast",
+        "accuracy": "high",
+        "gpu_memory": "1GB"
+      },
+      "use_cases": [
+        "High-speed object detection",
+        "Edge deployment",
+        "Real-time applications"
+      ],
+      "supported_classes": 80,
+      "max_detections": 100
+    }
+  },
+  "categories": {
+    "detection": {
+      "name": "Object Detection",
+      "description": "Identify and locate objects in images/videos",
+      "color": "green",
+      "icon": "target"
+    },
+    "keypoint_detection": {
+      "name": "Keypoint Detection",
+      "description": "Identify and locate keypoints in images",
+      "color": "orange",
+      "icon": "crosshair"
+    },
+    "classification": {
+      "name": "Image Classification", 
+      "description": "Categorize images into predefined classes",
+      "color": "blue",
+      "icon": "grid"
+    },
+    "segmentation": {
+      "name": "Image Segmentation",
+      "description": "Create pixel-level masks for objects",
+      "color": "purple", 
+      "icon": "scissors"
+    }
+    
+  }
+}

@@ -12,6 +12,7 @@ class VideoProcessingRequest(BaseModel):
     video_codec: str = "h264"  # "h264", "h265", "vp8", "vp9"
     audio_codec: str = "none"  # "none", "aac", "mp3"
     return_url: bool = False  # return URL instead of base64
+    model: str = "yolo"  # model to use for processing
 
 class BoundingBox(BaseModel):
     x: int

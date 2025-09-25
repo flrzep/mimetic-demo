@@ -67,12 +67,18 @@ def get_model_class(model_name="yolo"):
 class YOLOv10:
     """YOLOv10 object detection model with ONNX runtime."""
 
-    def __init__(self):
+    def __init__(self, model_folder="yolo", weights_file=None, classes_file=None, model_type="pytorch"):
         self.cache_dir = Path("/cache")
         self.cache_dir.mkdir(exist_ok=True)
         self.session = None
         self.class_names = None
         self.colors = None
+        
+        # Model configuration from config file
+        self.model_folder = model_folder
+        self.weights_file = weights_file
+        self.classes_file = classes_file
+        self.model_type = model_type
         
         # Model dimensions - will be set when model is loaded
         self.input_height = None
@@ -86,17 +92,30 @@ class YOLOv10:
         
         # Load the model
         self.load_model()
-        print("YOLO model initialized")
+        print(f"YOLO model initialized from {model_folder} folder")
 
     def load_model(self):
-        """Load the YOLO model from pre-downloaded weights or HuggingFace."""
-        model_paths = [
-            "/models/yolo/yolov10n.onnx",  # Pre-downloaded in volume
-            "/tmp/yolov10n.onnx",  # Fallback download location
-        ]
+        """Load the YOLO model from configured paths or fallback locations."""
+        # Build model paths based on configuration
+        model_paths = []
+        
+        if self.weights_file:
+            # Use configured path
+            configured_path = f"/models/{self.model_folder}/{self.weights_file}"
+            model_paths.append(configured_path)
+            print(f"Using configured model path: {configured_path}")
+        
+        # Fallback paths for backward compatibility
+        model_paths.extend([
+            f"/models/{self.model_folder}/yolov10n.onnx",
+            f"/models/{self.model_folder}/yolov10b.pt", 
+            "/models/yolo/yolov10n.onnx",  # Original hardcoded path
+            "/tmp/yolov10n.onnx",  # Download fallback
+        ])
         
         model_file = None
         for path in model_paths:
+            print(f"Checking model path: {path}")
             if os.path.exists(path):
                 model_file = path
                 print(f"Using model from {path}")
@@ -135,11 +154,21 @@ class YOLOv10:
         self.get_input_details()
         self.get_output_details()
 
-        # Load class names from multiple possible paths
-        classes_file_paths = [
-            "/models/yolo/yolo_classes.txt",  # Pre-downloaded in volume
-            this_dir / "models" / "yolo" / "yolo_classes.txt",    # Local in models/yolo directory
-        ]
+        # Load class names from configured and fallback paths
+        classes_file_paths = []
+        
+        if self.classes_file:
+            # Use configured classes file
+            configured_classes_path = f"/models/{self.model_folder}/{self.classes_file}"
+            classes_file_paths.append(configured_classes_path)
+            print(f"Using configured classes file: {configured_classes_path}")
+        
+        # Fallback paths for backward compatibility
+        classes_file_paths.extend([
+            f"/models/{self.model_folder}/yolo_classes.txt",  # Folder-specific fallback
+            "/models/yolo/yolo_classes.txt",  # Original hardcoded path
+            this_dir / "models" / "yolo" / "yolo_classes.txt",    # Local fallback
+        ])
         
         self.class_names = None
         for classes_file in classes_file_paths:

@@ -67,83 +67,30 @@ image = (
     ])
     .add_local_python_source("import_model")
     .add_local_dir("models", remote_path="/app/models")
+    .add_local_file("model_config.json", remote_path="/app/model_config.json")
 )
 
 # Create the Modal app with branch-based naming
 app = modal.App(app_name, image=image)
 
-# Create volumes for model caching and weights
-model_cache_volume = modal.Volume.from_name("models", create_if_missing=True)
-model_weights_volume = modal.Volume.from_name("cache", create_if_missing=True)
+# Create volume for model storage
+model_volume = modal.Volume.from_name("mimetic-models", create_if_missing=True)
 
 MODEL_DIR = Path("/models")
-CACHE_DIR = Path("/cache")
-
-# Pre-download YOLO model weights function
-@app.function(
-    image=image,
-    volumes={
-        "/cache": model_cache_volume,
-        "/models": model_weights_volume
-    },
-    timeout=3600
-)
-def download_model_weights():
-    """Pre-download and cache YOLO model weights"""
-    import shutil
-
-    from huggingface_hub import hf_hub_download
-    
-    print("Downloading YOLO model weights...")
-    
-    # Download to cache first
-    cache_path = CACHE_DIR / "yolo"
-    cache_path.mkdir(parents=True, exist_ok=True)
-    
-    model_file = hf_hub_download(
-        repo_id="onnx-community/yolov10n",
-        filename="onnx/model.onnx",
-        cache_dir=str(cache_path),
-    )
-    
-    # Copy to persistent model weights volume
-    models_yolo_dir = MODEL_DIR / "yolo"
-    models_yolo_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Copy the downloaded model to the weights volume
-    destination = models_yolo_dir / "yolov10n.onnx"
-    shutil.copy2(model_file, destination)
-    
-    # Copy the class names file from the local models directory to the volume
-    local_classes_file = Path("/app/models/yolo/yolo_classes.txt")
-    if local_classes_file.exists():
-        shutil.copy2(local_classes_file, models_yolo_dir / "yolo_classes.txt")
-        print(f"Class names copied from {local_classes_file}")
-    else:
-        print("Warning: /app/models/yolo/yolo_classes.txt not found, model will use fallback classes")
-    
-    print(f"Model weights saved to {destination}")
-    print(f"Class names saved to {models_yolo_dir / 'yolo_classes.txt'}")
-    return str(destination)
 
 @app.function(
     image=image,
     volumes={
-        "/cache": model_cache_volume,
-        "/models": model_weights_volume
+        "/models": model_volume
     }
 )
 def list_model_weights():
-    """List all model weights currently stored in the Modal volumes"""
-    import os
+    """List all model weights currently stored in the Modal volume"""
     from pathlib import Path
     
-    print("Checking Modal volumes for model weights...")
+    print("Checking Modal volume for model weights...")
     
-    results = {
-        "models_volume": {},
-        "cache_volume": {}
-    }
+    results = {"models": {}}
     
     # Check /models volume
     models_path = Path("/models")
@@ -166,78 +113,86 @@ def list_model_weights():
                         total_size += size
                         print(f"  File: {file.name} ({round(size / (1024 * 1024), 2)} MB)")
                 
-                results["models_volume"][model_dir.name] = {
+                results["models"][model_dir.name] = {
                     "files": files,
                     "total_size_mb": round(total_size / (1024 * 1024), 2)
                 }
     else:
         print("/models does not exist")
     
-    # Check /cache volume
-    cache_path = Path("/cache")
-    print(f"Checking /cache volume at {cache_path}")
-    if cache_path.exists():
-        print(f"/cache exists, listing contents...")
-        for item in cache_path.iterdir():
-            print(f"Found in cache: {item}")
-            if item.is_dir():
-                files = []
-                total_size = 0
-                for file in item.rglob("*"):
-                    if file.is_file():
-                        size = file.stat().st_size
-                        files.append({
-                            "name": file.name,
-                            "path": str(file.relative_to(cache_path)),
-                            "size_mb": round(size / (1024 * 1024), 2)
-                        })
-                        total_size += size
-                
-                results["cache_volume"][item.name] = {
-                    "files": files,
-                    "total_size_mb": round(total_size / (1024 * 1024), 2)
-                }
-    else:
-        print("/cache does not exist")
-    
     print(f"Final results: {results}")
     return results
 
-# Global variable to store the model instance
-model = None
+# Global variable to store model instances
+models = {}
 
-def get_model():
+def get_model(model_name: str = "yolo"):
     """Initialize model once and reuse across function calls"""
-    global model
-    if model is None:
-        print("Loading model...")
+    global models
+    if model_name not in models:
+        print(f"Loading model: {model_name}")
         
         import onnxruntime
         onnxruntime.preload_dlls()
         
-        # Import and use the local model implementation
-        from import_model import YOLOv10
+        # Load model config to get file paths
+        import json
+        model_config = {}
+        try:
+            with open("/app/model_config.json", "r") as f:
+                config = json.load(f)
+                model_config = config.get("models", {}).get(model_name, {})
+        except Exception as e:
+            print(f"Warning: Could not load model config: {e}")
+            
+        # Get model file information from config
+        files_info = model_config.get("files", {})
+        model_type = model_config.get("model_type", "pytorch")
+        folder = files_info.get("folder", model_name)
+        weights_file = files_info.get("weights")
+        classes_file = files_info.get("classes")
         
-        cache_path = "/cache/yolo"
-        os.makedirs(cache_path, exist_ok=True)
+        print(f"Model config: folder={folder}, weights={weights_file}, type={model_type}")
         
-        # Initialize the model
-        model = YOLOv10()
-        print("Model loaded successfully")
+        # Load different models based on model_name and type
+        if model_name in ["yolo", "yolo_onnx"]:
+            from import_model import YOLOv10
+            # Pass config information to the model
+            models[model_name] = YOLOv10(
+                model_folder=folder,
+                weights_file=weights_file,
+                classes_file=classes_file,
+                model_type=model_type
+            )
+        elif model_name == "efficientnet":
+            # Placeholder for EfficientNet model loading
+            print(f"Model {model_name} not yet implemented, using YOLO fallback")
+            from import_model import YOLOv10
+            models[model_name] = YOLOv10()
+        elif model_name == "keypoint_rcnn":
+            # Placeholder for Keypoint R-CNN model loading
+            print(f"Model {model_name} not yet implemented, using YOLO fallback")
+            from import_model import YOLOv10
+            models[model_name] = YOLOv10()
+        else:
+            print(f"Unknown model {model_name}, falling back to YOLO")
+            from import_model import YOLOv10
+            models[model_name] = YOLOv10()
+            
+        print(f"Model {model_name} loaded successfully")
         
-    return model
+    return models[model_name]
 
 @app.function(
     image=image,
     gpu=GPU_TYPE,
     volumes={
-        "/cache": model_cache_volume,
-        "/models": model_weights_volume
+        "/models": model_volume
     },
     scaledown_window=300,
     timeout=3600
 )
-def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[Dict]:
+def process_image(image_b64: str, width: int = 640, height: int = 480, model_name: str = "yolo") -> List[Dict]:
     '''
     Run object detection inference on a single image
     '''
@@ -248,10 +203,10 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
         import numpy as np
         from PIL import Image
 
-        print(f"Processing image with model: {width}x{height}")
+        print(f"Processing image with model '{model_name}': {width}x{height}")
 
-        # Get the shared model instance
-        model = get_model()
+        # Get the specified model instance
+        model = get_model(model_name)
 
         # Decode base64 image
         image_bytes = base64.b64decode(image_b64)
@@ -294,13 +249,12 @@ def process_image(image_b64: str, width: int = 640, height: int = 480) -> List[D
     image=image,
     gpu=GPU_TYPE,
     volumes={
-        "/cache": model_cache_volume,
-        "/models": model_weights_volume
+        "/models": model_volume
     },
     scaledown_window=300,
     timeout=3600
 )
-def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
+def process_video(video_b64: str, frame_skip: int = 10, model_name: str = "yolo") -> List[Dict]:
     '''
     Process entire video with object detection and return predictions for all frames
     This is more efficient than processing frames individually
@@ -320,7 +274,7 @@ def process_video(video_b64: str, frame_skip: int = 10) -> List[Dict]:
         print(f"Starting video processing with model, frame_skip={frame_skip}")
         
         # Get the shared model instance
-        model = get_model()
+        model = get_model(model_name)
         
         # Decode base64 video
         video_bytes = base64.b64decode(video_b64)
@@ -430,10 +384,12 @@ def create_web_app():
         image: str  # base64 encoded image
         width: Optional[int] = 640
         height: Optional[int] = 480
+        model: Optional[str] = "yolo"  # Default to YOLO for backward compatibility
     
     class VideoProcessRequest(BaseModel):
         video: str  # base64 encoded video
         frame_skip: Optional[int] = 10
+        model: Optional[str] = "yolo"  # Default to YOLO for backward compatibility
     
     web_app = FastAPI(title="Modal CV Service")
     
@@ -454,11 +410,83 @@ def create_web_app():
         """HTTP health check"""
         return {"status": "ok", "model": "yolo", "gpu": True}
 
+    @web_app.get("/models")
+    async def get_available_models():
+        """Get list of available models with descriptions"""
+        try:
+            import json
+            
+            # Load model configuration
+            with open("/app/model_config.json", "r") as f:
+                config = json.load(f)
+            
+            model_metadata = config["models"]
+            categories = config["categories"]
+            
+            # Get the actual models from storage
+            stored_models = list_model_weights.remote()
+            
+            # Build response with actual available models
+            available_models = []
+            for model_id, model_info in stored_models.get("models", {}).items():
+                metadata = model_metadata.get(model_id, {
+                    "name": model_id.capitalize(),
+                    "description": f"Custom {model_id} model",
+                    "category": "unknown",
+                    "recommended": False,
+                    "input_types": ["image"],
+                    "output_format": "predictions"
+                })
+                
+                # Get category info
+                category_info = categories.get(metadata["category"], {})
+                
+                available_models.append({
+                    "id": model_id,
+                    "name": metadata["name"],
+                    "description": metadata["description"],
+                    "category": metadata["category"],
+                    "category_info": {
+                        "name": category_info.get("name", metadata["category"].capitalize()),
+                        "description": category_info.get("description", ""),
+                        "color": category_info.get("color", "gray"),
+                        "icon": category_info.get("icon", "circle")
+                    },
+                    "recommended": metadata.get("recommended", False),
+                    "input_types": metadata.get("input_types", ["image"]),
+                    "output_format": metadata.get("output_format", "predictions"),
+                    "performance": metadata.get("performance", {}),
+                    "use_cases": metadata.get("use_cases", []),
+                    "files": {
+                        "config": metadata.get("files", {}),  # Configuration from model_config.json
+                        "discovered": model_info.get("files", [])  # Actual files found in folder
+                    },
+                    "model_type": metadata.get("model_type", "unknown"),
+                    "size_mb": model_info.get("total_size_mb", 0),
+                    "status": "available"
+                })
+            
+            return {
+                "success": True,
+                "models": available_models,
+                "categories": categories,
+                "total_models": len(available_models)
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "models": [],
+                "categories": {},
+                "total_models": 0
+            }
+
     @web_app.post("/predict")
     async def predict_http(req: PredictRequest):
         """HTTP prediction endpoint for single images"""
         try:
-            predictions = process_image.remote(req.image, req.width or 640, req.height or 480)
+            predictions = process_image.remote(req.image, req.width or 640, req.height or 480, req.model or "yolo")
             return {"success": True, "predictions": predictions}
         except Exception as e:
             return {"success": False, "error": str(e), "predictions": []}
@@ -467,7 +495,7 @@ def create_web_app():
     async def process_video_http(req: VideoProcessRequest):
         """HTTP endpoint for processing entire videos"""
         try:
-            processed_frames = process_video.remote(req.video, req.frame_skip or 10)
+            processed_frames = process_video.remote(req.video, req.frame_skip or 10, req.model or "yolo")
             return {"success": True, "frames": processed_frames}
         except Exception as e:
             return {"success": False, "error": str(e), "frames": []}
@@ -490,6 +518,10 @@ if __name__ == "__main__":
     print("To set GPU type: MODAL_GPU_TYPE=a100 modal deploy modal_service.py")
     print()
     print("Available commands:")
-    print("- Download model weights: modal run modal_service.py::download_model_weights")
     print("- Process single image: modal run modal_service.py::process_image --image-b64 <base64_string>")
     print("- Start web server: modal serve modal_service.py")
+    print()
+    print("Model management (use manage_models.py):")
+    print("- Download models: modal run manage_models.py::download_yolo_model")
+    print("- List models: modal run manage_models.py::list_models")
+    print("- Remove models: modal run manage_models.py::remove_model --model-name yolo")

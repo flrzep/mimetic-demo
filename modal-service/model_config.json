@@ -63,7 +63,7 @@
       "input_types": ["image", "video"],
       "output_format": "bounding_boxes",
       "files": {
-        "folder": "yolo_onnx",
+        "folder": "yolo",
         "weights": "yolov10n.onnx",
         "classes": "yolo_classes.txt",
         "config": null

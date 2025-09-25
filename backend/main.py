@@ -21,7 +21,7 @@ import httpx
 import httpx as _httpx
 import numpy as np
 from cachetools import TTLCache
-from fastapi import (Depends, FastAPI, File, HTTPException, Request,
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Request,
                      UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, Response
@@ -667,7 +667,7 @@ async def video_websocket(websocket: WebSocket):
 
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict(file: UploadFile = File(...), model: str = "yolo", _user=Depends(auth_dep)):
+async def predict(file: UploadFile = File(...), model: str = Form("yolo"), _user=Depends(auth_dep)):
     logger.info(f"Image prediction request received: {file.filename}, size: {file.size} bytes, model: {model}")
     
     client_key = "default"

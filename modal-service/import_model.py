@@ -12,6 +12,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import onnxruntime
+import torch
+import torchvision.transforms as transforms
 
 this_dir = Path(__file__).parent
 
@@ -65,12 +67,16 @@ def get_model_class(model_name="yolo"):
 
 
 class YOLOv10:
-    """YOLOv10 object detection model with ONNX runtime."""
+    """YOLOv10 object detection model supporting both PyTorch and ONNX runtime."""
 
     def __init__(self, model_folder="yolo", weights_file=None, classes_file=None, model_type="pytorch"):
         self.cache_dir = Path("/cache")
         self.cache_dir.mkdir(exist_ok=True)
-        self.session = None
+        
+        # Model runtime instances (only one will be used)
+        self.session = None  # ONNX runtime session
+        self.torch_model = None  # PyTorch model
+        
         self.class_names = None
         self.colors = None
         
@@ -122,7 +128,7 @@ class YOLOv10:
                 break
         
         if model_file is None:
-            # Download from HuggingFace as fallback
+            # Download from HuggingFace as fallback (prefer ONNX for fallback)
             print("Downloading YOLOv10 model from HuggingFace...")
             from huggingface_hub import hf_hub_download
             
@@ -133,26 +139,61 @@ class YOLOv10:
                 local_dir_use_symlinks=False,
             )
             print(f"Downloaded model to {model_file}")
+            # Override model_type for downloaded ONNX model
+            self.model_type = "onnx"
         
-        self.initialize_model(model_file)
+        # Determine actual model type from file extension if not explicitly set
+        if model_file.endswith(('.onnx',)):
+            actual_model_type = "onnx"
+        elif model_file.endswith(('.pt', '.pth')):
+            actual_model_type = "pytorch"
+        else:
+            # Use configured model_type as fallback
+            actual_model_type = self.model_type
+            
+        print(f"Loading model: {model_file} (type: {actual_model_type})")
+        self.initialize_model(model_file, actual_model_type)
 
-    def initialize_model(self, model_file):
-        self.session = onnxruntime.InferenceSession(
-            model_file,
-            providers=[
-                (
-                    "TensorrtExecutionProvider",
-                    {
-                        "trt_engine_cache_enable": True,
-                        "trt_engine_cache_path": self.cache_dir / "onnx.cache",
-                    },
-                ),
-                "CUDAExecutionProvider",
-            ],
-        )
-        # Get model info
-        self.get_input_details()
-        self.get_output_details()
+    def initialize_model(self, model_file, model_type):
+        """Initialize either PyTorch or ONNX model based on type."""
+        self.actual_model_type = model_type
+        
+        if model_type == "onnx":
+            print("Initializing ONNX model...")
+            self.session = onnxruntime.InferenceSession(
+                model_file,
+                providers=[
+                    (
+                        "TensorrtExecutionProvider",
+                        {
+                            "trt_engine_cache_enable": True,
+                            "trt_engine_cache_path": self.cache_dir / "onnx.cache",
+                        },
+                    ),
+                    "CUDAExecutionProvider",
+                    "CPUExecutionProvider",  # Fallback
+                ],
+            )
+            # Get model info for ONNX
+            self.get_input_details()
+            self.get_output_details()
+            
+        elif model_type == "pytorch":
+            print("Initializing PyTorch model...")
+            # Load PyTorch model
+            self.torch_model = torch.jit.load(model_file, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+            self.torch_model.eval()
+            
+            # Set standard YOLO input dimensions (will be validated during first inference)
+            self.input_width = 640
+            self.input_height = 640
+            self.img_width = 640
+            self.img_height = 640
+            
+        else:
+            raise ValueError(f"Unsupported model type: {model_type}")
+            
+        print(f"Model initialized successfully with {model_type} runtime")
 
         # Load class names from configured and fallback paths
         classes_file_paths = []
@@ -199,6 +240,15 @@ class YOLOv10:
         Predict objects in image and return results in API format
         Compatible with the Modal service API expectations
         """
+        if self.actual_model_type == "onnx":
+            return self._predict_onnx(image, conf_threshold)
+        elif self.actual_model_type == "pytorch":
+            return self._predict_pytorch(image, conf_threshold)
+        else:
+            raise ValueError(f"Unsupported model type: {self.actual_model_type}")
+    
+    def _predict_onnx(self, image, conf_threshold=0.3):
+        """ONNX-specific prediction logic."""
         input_tensor = self.prepare_input(image)
         
         # Run inference and get raw results
@@ -210,7 +260,29 @@ class YOLOv10:
         # Process outputs to get boxes, scores, class_ids
         boxes, scores, class_ids = self.process_output(outputs, conf_threshold)
         
-        # Convert to API format
+        return self._format_results(boxes, scores, class_ids)
+    
+    def _predict_pytorch(self, image, conf_threshold=0.3):
+        """PyTorch-specific prediction logic."""
+        input_tensor = self.prepare_input_pytorch(image)
+        
+        # Run inference
+        with torch.no_grad():
+            outputs = self.torch_model(input_tensor)
+        
+        # Convert to numpy for processing
+        if isinstance(outputs, torch.Tensor):
+            outputs = [outputs.cpu().numpy()]
+        elif isinstance(outputs, (list, tuple)):
+            outputs = [output.cpu().numpy() for output in outputs]
+        
+        # Process outputs to get boxes, scores, class_ids
+        boxes, scores, class_ids = self.process_output(outputs, conf_threshold)
+        
+        return self._format_results(boxes, scores, class_ids)
+    
+    def _format_results(self, boxes, scores, class_ids):
+        """Convert predictions to API format."""
         results = []
         for i in range(len(boxes)):
             x1, y1, x2, y2 = boxes[i].astype(int)
@@ -235,6 +307,26 @@ class YOLOv10:
         input_img = input_img.transpose(2, 0, 1)
         input_tensor = input_img[np.newaxis, :, :, :].astype(np.float32)
 
+        return input_tensor
+    
+    def prepare_input_pytorch(self, image):
+        """Prepare input tensor for PyTorch model."""
+        self.img_height, self.img_width = image.shape[:2]
+
+        input_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Resize input image
+        input_img = cv2.resize(input_img, (self.input_width, self.input_height))
+
+        # Scale input pixel values to 0 to 1
+        input_img = input_img / 255.0
+        input_img = input_img.transpose(2, 0, 1)
+        input_tensor = torch.from_numpy(input_img[np.newaxis, :, :, :]).float()
+        
+        # Move to GPU if available
+        if torch.cuda.is_available():
+            input_tensor = input_tensor.cuda()
+        
         return input_tensor
 
     def inference(self, image, input_tensor, conf_threshold=0.3):
@@ -322,16 +414,20 @@ class YOLOv10:
         return det_img
 
     def get_input_details(self):
-        model_inputs = self.session.get_inputs()
-        self.input_names = [model_inputs[i].name for i in range(len(model_inputs))]
+        if hasattr(self, 'actual_model_type') and self.actual_model_type == "onnx":
+            model_inputs = self.session.get_inputs()
+            self.input_names = [model_inputs[i].name for i in range(len(model_inputs))]
 
-        self.input_shape = model_inputs[0].shape
-        self.input_height = self.input_shape[2]
-        self.input_width = self.input_shape[3]
+            self.input_shape = model_inputs[0].shape
+            self.input_height = self.input_shape[2]
+            self.input_width = self.input_shape[3]
+        # For PyTorch models, input details are set in initialize_model
 
     def get_output_details(self):
-        model_outputs = self.session.get_outputs()
-        self.output_names = [model_outputs[i].name for i in range(len(model_outputs))]
+        if hasattr(self, 'actual_model_type') and self.actual_model_type == "onnx":
+            model_outputs = self.session.get_outputs()
+            self.output_names = [model_outputs[i].name for i in range(len(model_outputs))]
+        # For PyTorch models, output details are handled dynamically
 
     def draw_box(
         self,

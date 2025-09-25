@@ -498,7 +498,7 @@ export default function Page() {
   }, []);
 
   return (
-    <div className="min-h-screen text-slate-800 bg-[linear-gradient(180deg,#f8fafc,#e2e8f0_60%)]">
+    <div className="min-h-screen text-slate-200 bg-[linear-gradient(180deg,#0f172a,#0b1020_60%)]">
       <header className="py-4 sm:py-8 mb-6">
         <div className="max-w-3xl mx-auto px-4">
           <div className="flex flex-row sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -513,7 +513,7 @@ export default function Page() {
               />
               <div>
                 <h1 className="m-0 text-xl sm:text-2xl font-bold tracking-tight">Demo</h1>
-                <p className="mt-0 text-sm sm:text-base text-slate-600">Online Inference of CV Models</p>
+                <p className="mt-0 text-sm sm:text-base text-slate-400">Test our models online</p>
               </div>
             </div>
             
@@ -521,7 +521,7 @@ export default function Page() {
             {REQUIRE_AUTH && (
               <div className="self-end sm:self-auto">
                 {user ? (
-                  <button className="px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-100 text-sm" onClick={signOut} aria-label="Sign out">Sign out</button>
+                  <button className="px-3 py-1.5 rounded-md border border-white/10 hover:bg-white/10 text-sm" onClick={signOut} aria-label="Sign out">Sign out</button>
                 ) : (
                   <button className="px-3 py-1.5 rounded-md bg-brand-500 hover:bg-brand-600 text-white text-sm" onClick={signInWithEmail} aria-label="Sign in">Sign in</button>
                 )}
@@ -538,7 +538,7 @@ export default function Page() {
             <div className="relative" data-model-dropdown>
               <button
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border border-slate-300 bg-white/80 hover:bg-slate-50 transition-colors w-full lg:min-w-[280px]"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border border-white/10 bg-slate-900/50 hover:bg-slate-800/50 transition-colors w-full lg:min-w-[280px]"
                 aria-expanded={isModelDropdownOpen}
                 aria-haspopup="listbox"
               >
@@ -550,7 +550,7 @@ export default function Page() {
                       <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-500/20 text-green-300 rounded">Recommended</span>
                     )}
                   </div>
-                  <div className="text-xs sm:text-sm text-slate-600 truncate">
+                  <div className="text-xs sm:text-sm text-slate-400 truncate">
                     {availableModels.find(m => m.id === selectedModel)?.description || 'Loading model information...'}
                   </div>
                 </div>
@@ -558,17 +558,17 @@ export default function Page() {
               </button>
 
               {isModelDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 py-1 bg-white border border-slate-300 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 py-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
                   {modelsLoading ? (
                     <div className="flex items-center justify-center py-8">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-500"></div>
-                      <span className="ml-3 text-slate-600">Loading models...</span>
+                      <span className="ml-3 text-slate-400">Loading models...</span>
                     </div>
                   ) : availableModels.length === 0 ? (
                     <div className="flex items-center justify-center py-8">
                       <div className="text-center">
                         <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-                        <p className="text-slate-600">No models available</p>
+                        <p className="text-slate-400">No models available</p>
                         <p className="text-xs text-slate-500 mt-1">Check server connection</p>
                       </div>
                     </div>
@@ -579,8 +579,8 @@ export default function Page() {
                         setSelectedModel(model.id);
                         setIsModelDropdownOpen(false);
                       }}
-                      className={`w-full px-4 py-3 text-left hover:bg-slate-100 transition-colors ${
-                        selectedModel === model.id ? 'bg-brand-50 border-l-4 border-brand-500' : ''
+                      className={`w-full px-4 py-3 text-left hover:bg-slate-800/50 transition-colors ${
+                        selectedModel === model.id ? 'bg-brand-500/10 border-l-4 border-brand-500' : ''
                       }`}
                       role="option"
                       aria-selected={selectedModel === model.id}
@@ -599,7 +599,7 @@ export default function Page() {
                               <span className="px-1.5 py-0.5 text-xs bg-green-500/20 text-green-300 rounded">Recommended</span>
                             )}
                           </div>
-                          <div className="text-sm text-slate-600">{model.description}</div>
+                          <div className="text-sm text-slate-400">{model.description}</div>
                           <div className="text-xs text-slate-500 capitalize">{model.category}</div>
                         </div>
                       </div>
@@ -619,20 +619,20 @@ export default function Page() {
           />
         </div>
         {!health.ok && (
-          <div className="flex items-center gap-2 p-3 rounded-xl border border-yellow-400/30 bg-yellow-100/80 text-yellow-800" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 p-3 rounded-xl border border-yellow-200/30 bg-yellow-500/10 text-yellow-100" role="status" aria-live="polite">
             <AlertTriangle size={18} />
             <span>{health.message || 'Backend may be cold starting. First request can take up to a minute on free tier.'}</span>
           </div>
         )}
 
         {/* Tab Navigation */}
-        <div className="flex flex-col sm:flex-row gap-1 p-1 justify-stretch rounded-xl bg-white/80 border border-slate-300">
+        <div className="flex flex-col sm:flex-row gap-1 p-1 justify-stretch rounded-xl bg-slate-900/50 border border-white/10">
           <button
             onClick={() => handleTabChange('image')}
             className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'image'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-600 bg-slate-100 hover:text-slate-800 hover:bg-slate-200'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
             <ImageIcon className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
@@ -644,7 +644,7 @@ export default function Page() {
             className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'video'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-600 bg-slate-100 hover:text-slate-800 hover:bg-slate-200'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
             <Video className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
@@ -656,7 +656,7 @@ export default function Page() {
             className={`flex grow items-center justify-center w-auto gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
               activeTab === 'stream'
                 ? 'bg-brand-500 text-white shadow-lg'
-                : 'text-slate-600 bg-slate-100 hover:text-slate-800 hover:bg-slate-200'
+                : 'text-slate-400 bg-white/10 hover:text-white hover:bg-white/20'
             }`}
           >
             <Radio className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0" />
@@ -668,7 +668,7 @@ export default function Page() {
         {/* Tab Content */}
         {activeTab === 'image' && (
           <>
-            <section className="rounded-2xl border border-slate-300 bg-gradient-to-b from-white to-slate-50 p-4 sm:p-5 shadow-xl">
+            <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-4 sm:p-5 shadow-xl">
               <ImageUpload
                 onDrop={onDrop}
                 onRejected={onRejected}
@@ -688,16 +688,16 @@ export default function Page() {
               {isLoading && (
                 <div className="grid gap-2 place-items-center text-center p-4">
                   <LoadingSpinner />
-                  <p className="text-slate-600 text-sm sm:text-base">Processing... This may take a bit if the backend is waking up.</p>
+                  <p className="text-slate-400 text-sm sm:text-base">Processing... This may take a bit if the backend is waking up.</p>
                   {uploadProgress > 0 && (
-                    <div className="h-2 w-full max-w-xs rounded-full bg-slate-200 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="h-2 w-full max-w-xs rounded-full bg-white/10 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
                       <div className="h-full bg-gradient-to-r from-brand-500 to-blue-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                   )}
                 </div>
               )}
               {!!error && (
-                <div className="flex items-start gap-2 p-3 rounded-xl border border-red-300/50 bg-red-100/80 text-red-800" role="alert">
+                <div className="flex items-start gap-2 p-3 rounded-xl border border-red-200/30 bg-red-500/10 text-red-100" role="alert">
                   <AlertTriangle className="w-4 h-4 sm:w-[18px] sm:h-[18px] flex-shrink-0 mt-0.5" />
                   <span className="text-sm sm:text-base">{error}</span>
                 </div>
@@ -706,27 +706,27 @@ export default function Page() {
                 <PredictionResults results={results} />
               )}
               {!isLoading && !error && results && results.predictions && results.predictions.length > 0 && previewUrl && (
-                <div className="rounded-2xl border border-slate-300 bg-gradient-to-b from-white to-slate-50 p-5 shadow-xl">
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Image with Predictions</h3>
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
+                  <h3 className="text-lg font-semibold text-white mb-4">Image with Predictions</h3>
                   <div className="flex justify-center">
                     <div className="relative max-w-full">
                       <ImageOverlay
                         imageSrc={previewUrl}
                         predictions={results.predictions}
-                        className="rounded-xl border border-slate-300 bg-white"
+                        className="rounded-xl border border-white/10 bg-slate-950"
                         onError={(error) => {
                           console.error('ImageOverlay error:', error);
                           setError(error);
                         }}
                       />
                       <div className="absolute top-2 right-2">
-                        <div className="px-2 py-1 bg-slate-800/80 rounded-md text-xs text-white">
+                        <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
                           AI Processed
                         </div>
                       </div>
                     </div>
                   </div>
-                  <p className="text-slate-600 text-sm mt-3 text-center">
+                  <p className="text-slate-400 text-sm mt-3 text-center">
                     Computer vision predictions overlaid on your original image
                   </p>
                 </div>
@@ -737,7 +737,7 @@ export default function Page() {
 
         {activeTab === 'video' && (
           <>
-            <section className="rounded-2xl border border-slate-300 bg-gradient-to-b from-white to-slate-50 p-5 shadow-xl">
+            <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
               <VideoUpload
                 onDrop={onVideoDrop}
                 onRejected={onRejected}
@@ -757,16 +757,16 @@ export default function Page() {
               {isVideoProcessing && (
                 <div className="grid gap-2 place-items-center text-center p-4">
                   <LoadingSpinner label="Processing video..." />
-                  <p className="text-slate-600">Analyzing video frames...</p>
+                  <p className="text-slate-400">Analyzing video frames...</p>
                   {uploadProgress > 0 && (
-                    <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden" aria-label="Upload progress" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
                       <div className="h-full bg-gradient-to-r from-brand-500 to-blue-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                   )}
                 </div>
               )}
               {!!error && (
-                <div className="flex items-center gap-2 p-3 rounded-xl border border-red-300/50 bg-red-100/80 text-red-800" role="alert">
+                <div className="flex items-center gap-2 p-3 rounded-xl border border-red-200/30 bg-red-500/10 text-red-100" role="alert">
                   <AlertTriangle size={18} />
                   <span>{error}</span>
                 </div>
@@ -779,14 +779,14 @@ export default function Page() {
                 />
               )}
               {!isVideoProcessing && !error && processedVideoUrl && (
-                <div className="rounded-2xl border border-slate-300 bg-gradient-to-b from-white to-slate-50 p-5 shadow-xl">
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-800">Processed Video with Predictions</h3>
+                    <h3 className="text-lg font-semibold text-white">Processed Video with Predictions</h3>
                     <div className="flex gap-2">
                       <a
                         href={processedVideoUrl}
                         download="original-video.mp4"
-                        className="px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-100 text-sm text-slate-700"
+                        className="px-3 py-1.5 rounded-md border border-white/20 hover:bg-white/10 text-sm text-slate-300"
                         title="Download original video"
                       >
                         Download Original
@@ -805,7 +805,7 @@ export default function Page() {
                         <VideoOverlay
                           videoSrc={processedVideoUrl}
                           frames={videoFrames}
-                          className="rounded-xl border border-slate-300 bg-white"
+                          className="rounded-xl border border-white/10 bg-slate-950"
                           onError={(error) => {
                             console.error('VideoOverlay error:', error);
                             setVideoPlaybackError(true);
@@ -814,15 +814,15 @@ export default function Page() {
                           onTimeUpdate={(time) => setCurrentVideoTime(time)}
                         />
                         <div className="absolute top-2 right-2">
-                          <div className="px-2 py-1 bg-slate-800/80 rounded-md text-xs text-white">
+                          <div className="px-2 py-1 bg-black/60 rounded-md text-xs text-white">
                             AI Processed
                           </div>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center p-8 border-2 border-dashed border-slate-300 rounded-xl">
-                      <p className="text-slate-600">
+                    <div className="text-center p-8 border-2 border-dashed border-white/20 rounded-xl">
+                      <p className="text-slate-400">
                         Video player hidden due to playback issues. Use the download button above to access the processed video.
                       </p>
                     </div>
@@ -835,7 +835,7 @@ export default function Page() {
                         </p>
                       </div>
                     )}
-                    <p className="text-slate-600 text-sm">
+                    <p className="text-slate-400 text-sm">
                       Computer vision predictions overlaid on video frames
                     </p>
                     {results?.total_frames && (
@@ -851,7 +851,7 @@ export default function Page() {
         )}
 
         {activeTab === 'stream' && (
-          <section className="rounded-2xl border border-slate-300 bg-gradient-to-b from-white to-slate-50 p-5 shadow-xl">
+          <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl">
             <StreamProcessor
               onStart={startStreamProcessing}
               onStop={stopStreamProcessing}
@@ -871,12 +871,12 @@ export default function Page() {
         onModeChange={handleCameraModeChange}
       />
 
-      <footer className="max-w-3xl mx-auto px-4 py-6 flex items-center justify-between text-slate-600">
+      <footer className="max-w-3xl mx-auto px-4 py-6 flex items-center justify-between text-slate-400">
         <div className="inline-flex gap-2 items-center">
           <Timer size={16} />
           <span>Backend: auto-detected • Uses health checks and retries</span>
         </div>
-        <button className="text-blue-600 hover:underline bg-transparent border-0 cursor-pointer">Docs</button>
+        <button className="text-blue-300 hover:underline bg-transparent border-0 cursor-pointer">Docs</button>
       </footer>
     </div>
   );

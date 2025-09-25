@@ -4,21 +4,21 @@
 
 /* Dark theme base */
 :root {
-  --bg: #FFFFFF;
-  --panel: #FFFFFF;
-  --panel-2: #FFFFFF;
-  --text: #000000;
-  color-scheme: normal;
+  --bg: #0f172a;
+  --panel: #111827;
+  --panel-2: #0b1220;
+  --text: #e5e7eb;
+  color-scheme: dark;
 }
 
 /* Ensure consistent dark background across all elements */
 html {
-  background-color: #F2F2F7 !important;
-  color-scheme: normal;
+  background-color: #0f172a !important;
+  color-scheme: dark;
 }
 
 body {
-  background-color: #F2F2F7 !important;
+  background-color: #0f172a !important;
   color: #e5e7eb;
   min-height: 100vh;
   @apply font-sans;
@@ -26,7 +26,7 @@ body {
 
 html, body, #__next { 
   height: 100%; 
-  background-color: #F2F2F7;
+  background-color: #0f172a;
 }
 
 /* Prevent white flash during page transitions */
@@ -36,7 +36,7 @@ html, body, #__next {
 
 /* Ensure dark scrollbars */
 html {
-  scrollbar-color: #FFFFFF #F2F2F7;
+  scrollbar-color: #475569 #1e293b;
   scrollbar-width: thin;
 }
 

@@ -19,7 +19,7 @@ def get_app_name():
         # Extract branch name from refs/heads/branch-name
         if github_ref.startswith("refs/heads/"):
             branch = github_ref[11:]  # Remove "refs/heads/"
-            if branch == "main":
+            if branch == "main" or branch.startswith("deploy/"):
                 return "mimetic-demo"
             else:
                 # Sanitize branch name for Modal (replace special chars with hyphens)

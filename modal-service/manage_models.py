@@ -18,7 +18,7 @@ def get_app_name():
     if github_ref:
         if github_ref.startswith("refs/heads/"):
             branch = github_ref[11:]
-            if branch == "main":
+            if branch == "main" or branch.startswith("deploy/"):
                 return "mimetic-demo"
             else:
                 safe_branch = branch.replace("/", "-").replace("_", "-").replace(".", "-")

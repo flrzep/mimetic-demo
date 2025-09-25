@@ -2,7 +2,7 @@ name: Deploy Modal Services
 
 on:
   push:
-    branches: [main, dev, dev/*, feature/*, preview/*]
+    branches: [main, deploy/*, dev, dev/*, feature/*, preview/*]
     paths:
       - 'modal-service/**'
       - '.github/workflows/deploy-modal.yml'
@@ -47,7 +47,7 @@ jobs:
           else
             branch_name="${{ github.ref_name }}"
             echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
-            if [[ "$branch_name" == "main" ]]; then
+            if [[ "$branch_name" == "main" || "$branch_name" == deploy/* ]]; then
               echo "is_preview=false" >> $GITHUB_OUTPUT
             else
               echo "is_preview=true" >> $GITHUB_OUTPUT
@@ -58,7 +58,7 @@ jobs:
         id: app_name
         run: |
           branch_name="${{ steps.branch.outputs.branch_name }}"
-          if [[ "$branch_name" == "main" ]]; then
+          if [[ "$branch_name" == "main" || "$branch_name" == deploy/* ]]; then
             app_name="mimetic-demo"
           else
             # Sanitize branch name for Modal
@@ -68,16 +68,6 @@ jobs:
           echo "app_name=$app_name" >> $GITHUB_OUTPUT
           echo "Deploying to Modal app: $app_name"
 
-      - name: Pre-download model weights
-        env:
-          MODAL_GPU_TYPE: ${{ vars.MODAL_GPU_TYPE || 'T4' }}  # Use environment variable or fallback to 'T4'
-          GITHUB_REF: ${{ github.ref }}
-        run: |
-          cd modal-service
-          echo "Pre-downloading model weights to Modal volumes..."
-          echo "Using GPU type: $MODAL_GPU_TYPE"
-          modal run modal_service.py::download_model_weights
-
       - name: Deploy service
         env:
           MODAL_GPU_TYPE: ${{ vars.MODAL_GPU_TYPE || 'T4' }}  # Use environment variable or fallback to 'T4'
@@ -86,11 +76,6 @@ jobs:
           cd modal-service
           echo "Deploying Modal app: ${{ steps.app_name.outputs.app_name }}"
           echo "Using GPU type: $MODAL_GPU_TYPE"
-          
-          # Ensure all required files exist
-          echo "Checking required files..."
-          ls -la import_model.py
-          ls -la models/yolo/yolo_classes.txt
           
           # Deploy the service
           modal deploy modal_service.py

@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'SMS CV Demo',
+  title: 'Mimetic Demo',
   description: 'Test Computer Vision Models',
   viewport: 'width=device-width, initial-scale=1',
   icons: {

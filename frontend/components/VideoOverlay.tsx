@@ -236,10 +236,15 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
     };
   }, [drawOverlay, onError, timerCallback]);
 
-  // Redraw overlay when predictions change
+  // Redraw overlay when predictions/settings change; throttle slightly when not playing
   useEffect(() => {
-    drawOverlay();
-  }, [drawOverlay]);
+    // If playing, animation frame handles redraws; when paused, debounce a bit
+    if (isPlaying) return;
+    const id = window.setTimeout(() => {
+      drawOverlay();
+    }, 75);
+    return () => window.clearTimeout(id);
+  }, [drawOverlay, isPlaying]);
 
   return (
     <div className={`relative inline-block ${className || ''}`} style={{ maxWidth: '100%' }}>

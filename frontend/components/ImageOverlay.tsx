@@ -127,11 +127,13 @@ export default function ImageOverlay({ imageSrc, predictions, className, onError
     onError?.(errorMsg);
   }, [onError]);
 
-  // Redraw overlay when predictions or dimensions change
+  // Redraw overlay when predictions or settings change, with a small debounce
   useEffect(() => {
-    if (isLoaded) {
+    if (!isLoaded) return;
+    const id = window.setTimeout(() => {
       drawOverlay();
-    }
+    }, 75);
+    return () => window.clearTimeout(id);
   }, [drawOverlay, isLoaded]);
 
   // Handle window resize to redraw overlay with correct dimensions

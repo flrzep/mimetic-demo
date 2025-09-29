@@ -55,6 +55,31 @@
       "supported_classes": 1000,
       "dataset": "ImageNet"
     },
+    "keypoint_rcnn_bars": {
+      "name": "Keypoint Bars",
+      "description": "Custom keypoint detection model trained on bar images",
+      "category": "keypoint_detection",
+      "recommended": false,
+      "input_types": ["image"],
+      "output_format": "keypoints, bounding_boxes",
+      "files": {
+        "folder": "keypoint_rcnn_bars_onnx",
+        "weights": "keypointsrcnn_weights_v4_3.onnx",
+        "classes": "keypointsrcnn_classes.yml",
+        "config": null
+      },
+      "model_type": "onnx",
+      "performance": {
+        "speed": "medium",
+        "accuracy": "-",
+        "gpu_memory": "-"
+      },
+      "use_cases": [
+        "Keypoint detection on specific objects"
+      ],
+      "supported_classes": 3,
+      "dataset": "custom"
+    },
     "yolo_onnx": {
       "name": "YOLOv10 ONNX",
       "description": "ONNX optimized version of YOLOv10 for faster inference",

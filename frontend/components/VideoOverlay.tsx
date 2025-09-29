@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { getClassColor, colorWithAlpha, getTextColorForBackground } from '../utils/colors';
 
 interface BoundingBox {
   x: number;
@@ -12,6 +13,7 @@ interface Prediction {
   confidence: number;
   label?: string;
   bbox?: BoundingBox;
+  keypoints?: { x: number; y: number; score?: number }[];
 }
 
 interface VideoFrame {
@@ -26,9 +28,13 @@ interface VideoOverlayProps {
   className?: string;
   onError?: (error: string) => void;
   onTimeUpdate?: (currentTime: number) => void;
+  showBoxes?: boolean;
+  showKeypoints?: boolean;
+  boxThreshold?: number; // 0..1
+  keypointThreshold?: number; // 0..1
 }
 
-export default function VideoOverlay({ videoSrc, frames, className, onError, onTimeUpdate }: VideoOverlayProps) {
+export default function VideoOverlay({ videoSrc, frames, className, onError, onTimeUpdate, showBoxes = true, showKeypoints = true, boxThreshold = 0, keypointThreshold = 0 }: VideoOverlayProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>();
@@ -90,47 +96,66 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
     const scaleX = canvas.width / video.videoWidth;
     const scaleY = canvas.height / video.videoHeight;
 
-    // Draw bounding boxes
+    // Draw bounding boxes and keypoints
     currentPredictions.forEach((pred, index) => {
-      if (!pred.bbox) {
-        return;
+      const canDrawBox = !!pred.bbox && showBoxes && (typeof pred.confidence !== 'number' || pred.confidence >= boxThreshold);
+      const canDrawKps = showKeypoints && Array.isArray(pred.keypoints) && pred.keypoints.length > 0;
+
+      if (canDrawBox && pred.bbox) {
+        const { x, y, width, height } = pred.bbox;
+        const boxColor = getClassColor(pred.class_id ?? 0);
+        // Scale coordinates to canvas size
+        const scaledX = x * scaleX;
+        const scaledY = y * scaleY;
+        const scaledWidth = width * scaleX;
+        const scaledHeight = height * scaleY;
+        // Draw bounding box with per-class color
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 3; // Thicker line
+        ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+
+        // Draw label with background
+        const label = `${pred.label || `Class ${pred.class_id}`}: ${pred.confidence.toFixed(2)}`;
+        
+        // Measure text
+        const fontSize = Math.floor(video.videoHeight * 0.02); // 2% of video height
+        ctx.font = `${fontSize}px Arial`; // Bigger font
+        const textMetrics = ctx.measureText(label);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize;
+
+        // Position label above bounding box, or below if too close to top
+  const labelY = scaledY > textHeight + 10 ? scaledY - 5 : scaledY + scaledHeight + textHeight + 5;
+
+        // Draw background rectangle for text with same hue
+        ctx.fillStyle = colorWithAlpha(boxColor, 0.9);
+        ctx.fillRect(scaledX, labelY - textHeight, textWidth + 8, textHeight + 4);
+
+        // Draw text
+        ctx.fillStyle = getTextColorForBackground(boxColor);
+        ctx.fillText(label, scaledX + 4, labelY - 4);
       }
 
-      const { x, y, width, height } = pred.bbox;
-      
-      // Scale coordinates to canvas size
-      const scaledX = x * scaleX;
-      const scaledY = y * scaleY;
-      const scaledWidth = width * scaleX;
-      const scaledHeight = height * scaleY;
-
-      // Draw bounding box with bright color for visibility
-      ctx.strokeStyle = '#00ff00'; // Bright green
-      ctx.lineWidth = 3; // Thicker line
-      ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
-
-      // Draw label with background
-      const label = `${pred.label || `Class ${pred.class_id}`}: ${pred.confidence.toFixed(2)}`;
-      
-      // Measure text
-      const fontSize = Math.floor(video.videoHeight * 0.02); // 2% of video height
-      ctx.font = `${fontSize}px Arial`; // Bigger font
-      const textMetrics = ctx.measureText(label);
-      const textWidth = textMetrics.width;
-      const textHeight = fontSize;
-
-      // Position label above bounding box, or below if too close to top
-      const labelY = scaledY > textHeight + 10 ? scaledY - 5 : scaledY + scaledHeight + textHeight + 5;
-
-      // Draw background rectangle for text
-      ctx.fillStyle = 'rgba(0, 255, 0, 0.9)'; // More opaque
-      ctx.fillRect(scaledX, labelY - textHeight, textWidth + 8, textHeight + 4);
-
-      // Draw text
-      ctx.fillStyle = '#000000';
-      ctx.fillText(label, scaledX + 4, labelY - 4);
+      // Draw keypoints if present
+      if (canDrawKps) {
+        const kpRadius = Math.max(2, Math.floor(video.videoHeight * 0.012));
+        ctx.fillStyle = '#00ffff';
+        ctx.strokeStyle = '#002233';
+        ctx.lineWidth = Math.max(1, Math.floor(video.videoHeight * 0.004));
+        for (const kp of pred.keypoints) {
+          if (typeof kp.x === 'number' && typeof kp.y === 'number') {
+            if (typeof kp.score === 'number' && kp.score < keypointThreshold) continue;
+            const xk = kp.x * scaleX;
+            const yk = kp.y * scaleY;
+            ctx.beginPath();
+            ctx.arc(xk, yk, kpRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+      }
     });
-  }, [predictions]);
+  }, [predictions, showBoxes, showKeypoints, boxThreshold, keypointThreshold]);
 
   // Animation frame callback (following MDN pattern for smoother updates)
   
@@ -247,7 +272,7 @@ export default function VideoOverlay({ videoSrc, frames, className, onError, onT
           objectFit: 'contain'
         }}
       />      {/* Debug info */}
-      {process.env.NODE_ENV === 'development' && (
+      {(typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process?.env?.NODE_ENV === 'development') && (
         <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white text-xs p-2 rounded max-w-xs">
           <div>Time: {currentTime.toFixed(1)}s</div>
           <div>Dimensions: {videoDimensions.width}x{videoDimensions.height}</div>

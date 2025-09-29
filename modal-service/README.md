@@ -45,3 +45,34 @@ uvicorn modal_service:app --reload --port 9000
 - `WebSocket /ws/{client_id}` - WebRTC signaling
 
 No GitHub Actions needed - Modal handles everything automatically!
+
+---
+
+## 📦 Managing Models & Config in Modal Volume
+
+Use the helper script `manage_models.py` and the quick guide in `MANAGE_MODELS.md` to upload and validate model files and `model_config.json`.
+
+Quick commands (Windows PowerShell):
+
+```powershell
+# Authenticate (one-time)
+py -m modal token set
+
+# From repo root
+cd modal-service
+
+# Upload only the config after local edits
+py -m modal run manage_models.py::upload_model_config
+
+# Upload all local model files under modal-service/models
+py -m modal run manage_models.py::upload_local_models
+
+# Full setup: upload models + config, then validate
+py -m modal run manage_models.py::setup_modal_storage
+
+# Verify and validate
+py -m modal run manage_models.py::list_models
+py -m modal run manage_models.py::validate_model_config
+```
+
+See `MANAGE_MODELS.md` for more details.

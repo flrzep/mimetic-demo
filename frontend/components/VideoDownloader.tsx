@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Download, Loader2 } from 'lucide-react';
+import { getClassColor, colorWithAlpha, getTextColorForBackground } from '../utils/colors';
 
 interface BoundingBox {
   x: number;
@@ -13,6 +14,7 @@ interface Prediction {
   confidence: number;
   label?: string;
   bbox?: BoundingBox;
+  keypoints?: { x: number; y: number; score?: number }[];
 }
 
 interface VideoFrame {
@@ -26,13 +28,21 @@ interface VideoDownloaderProps {
   frames: VideoFrame[];
   fileName?: string;
   className?: string;
+  showBoxes?: boolean;
+  showKeypoints?: boolean;
+  boxThreshold?: number; // 0..1
+  keypointThreshold?: number; // 0..1
 }
 
 const VideoDownloader: React.FC<VideoDownloaderProps> = ({ 
   videoSrc, 
   frames, 
   fileName = 'processed_video.mp4',
-  className = '' 
+  className = '',
+  showBoxes = true,
+  showKeypoints = true,
+  boxThreshold = 0,
+  keypointThreshold = 0,
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -53,35 +63,47 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
 
   const drawBoundingBoxes = useCallback((ctx: CanvasRenderingContext2D, predictions: Prediction[], videoWidth: number, videoHeight: number) => {
     predictions.forEach((pred) => {
-      if (!pred.bbox) return;
-      
-      const { x, y, width, height } = pred.bbox;
-      
-      // Draw bounding box
-      ctx.strokeStyle = '#00ff00';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, width, height);
+      // Draw bbox when present and allowed
+      const canDrawBox = !!pred.bbox && showBoxes && (typeof pred.confidence !== 'number' || pred.confidence >= boxThreshold);
+      if (canDrawBox && pred.bbox) {
+        const { x, y, width, height } = pred.bbox;
+        const boxColor = getClassColor(pred.class_id ?? 0);
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, width, height);
 
-      // Draw label with background
-      const label = `${pred.label || `Class ${pred.class_id}`}: ${pred.confidence.toFixed(2)}`;
-      
-      const fontSize = Math.floor(videoHeight * 0.02);
-      ctx.font = `${fontSize}px Arial`;
-      const textMetrics = ctx.measureText(label);
-      const textWidth = textMetrics.width;
-      const textHeight = fontSize;
+        // Draw label with background
+        const label = `${pred.label || `Class ${pred.class_id}`}: ${pred.confidence.toFixed(2)}`;
+        const fontSize = Math.floor(videoHeight * 0.02);
+        ctx.font = `${fontSize}px Arial`;
+        const textMetrics = ctx.measureText(label);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize;
+        const labelY = y > textHeight + 10 ? y - 5 : y + height + textHeight + 5;
+        ctx.fillStyle = colorWithAlpha(boxColor, 0.9);
+        ctx.fillRect(x, labelY - textHeight, textWidth + 8, textHeight + 4);
+        ctx.fillStyle = getTextColorForBackground(boxColor);
+        ctx.fillText(label, x + 4, labelY - 4);
+      }
 
-      const labelY = y > textHeight + 10 ? y - 5 : y + height + textHeight + 5;
-
-      // Draw background rectangle for text
-      ctx.fillStyle = 'rgba(0, 255, 0, 0.9)';
-      ctx.fillRect(x, labelY - textHeight, textWidth + 8, textHeight + 4);
-
-      // Draw text
-      ctx.fillStyle = '#000000';
-      ctx.fillText(label, x + 4, labelY - 4);
+      // Draw keypoints when present and allowed
+      if (showKeypoints && Array.isArray(pred.keypoints) && pred.keypoints.length > 0) {
+        const kpRadius = Math.max(2, Math.floor(videoHeight * 0.012));
+        ctx.fillStyle = '#00ffff';
+        ctx.strokeStyle = '#002233';
+        ctx.lineWidth = Math.max(1, Math.floor(videoHeight * 0.004));
+        for (const kp of pred.keypoints) {
+          if (typeof kp.x === 'number' && typeof kp.y === 'number') {
+            if (typeof kp.score === 'number' && kp.score < keypointThreshold) continue;
+            ctx.beginPath();
+            ctx.arc(kp.x, kp.y, kpRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+      }
     });
-  }, []);
+  }, [showBoxes, showKeypoints, boxThreshold, keypointThreshold]);
 
   const processVideoFrame = useCallback(async (
     video: HTMLVideoElement, 

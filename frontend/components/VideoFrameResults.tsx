@@ -12,6 +12,7 @@ interface Prediction {
   confidence: number;
   label?: string;
   bbox?: BoundingBox;
+  keypoints?: { x: number; y: number; score?: number }[];
 }
 
 interface VideoFrame {
@@ -93,6 +94,9 @@ export default function VideoFrameResults({ frames, currentTime, className }: Vi
                 <span className="font-mono">
                   {pred.bbox.x},{pred.bbox.y} ({pred.bbox.width}×{pred.bbox.height})
                 </span>
+              )}
+              {Array.isArray(pred.keypoints) && pred.keypoints.length > 0 && (
+                <span>{pred.keypoints.length} keypoints</span>
               )}
             </div>
           </div>

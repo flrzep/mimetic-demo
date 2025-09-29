@@ -369,12 +369,35 @@ async def predict_with_modal(image_b64: str, image_width: int = 640, image_heigh
                             width=item["bbox"]["width"],
                             height=item["bbox"]["height"]
                         )
-                    
+                    # Map optional keypoints if present
+                    keypoints = None
+                    if isinstance(item.get("keypoints"), list):
+                        kp_list = []
+                        for kp in item["keypoints"]:
+                            try:
+                                # Accept dicts with x,y,score or arrays [x,y,(score)]
+                                if isinstance(kp, dict):
+                                    kp_list.append({
+                                        "x": float(kp.get("x", 0.0)),
+                                        "y": float(kp.get("y", 0.0)),
+                                        **({"score": float(kp["score"])} if "score" in kp else {})
+                                    })
+                                elif isinstance(kp, (list, tuple)) and len(kp) >= 2:
+                                    entry = {"x": float(kp[0]), "y": float(kp[1])}
+                                    if len(kp) > 2:
+                                        entry["score"] = float(kp[2])
+                                    kp_list.append(entry)
+                            except Exception:
+                                continue
+                        if kp_list:
+                            keypoints = kp_list
+
                     predictions.append(PredictionResult(
                         class_id=item["class_id"],
                         confidence=item["confidence"],
                         label=item.get("label"),
-                        bbox=bbox
+                        bbox=bbox,
+                        keypoints=keypoints
                     ))
                 
                 logger.info(f"Received {len(predictions)} predictions from Modal API")
@@ -482,12 +505,34 @@ async def process_video_with_modal(video_b64: str, frame_skip: int = 10, model: 
                                 width=pred["bbox"]["width"],
                                 height=pred["bbox"]["height"]
                             )
-                        
+                        # Map optional keypoints if present
+                        keypoints = None
+                        if isinstance(pred.get("keypoints"), list):
+                            kp_list = []
+                            for kp in pred["keypoints"]:
+                                try:
+                                    if isinstance(kp, dict):
+                                        kp_list.append({
+                                            "x": float(kp.get("x", 0.0)),
+                                            "y": float(kp.get("y", 0.0)),
+                                            **({"score": float(kp["score"])} if "score" in kp else {})
+                                        })
+                                    elif isinstance(kp, (list, tuple)) and len(kp) >= 2:
+                                        entry = {"x": float(kp[0]), "y": float(kp[1])}
+                                        if len(kp) > 2:
+                                            entry["score"] = float(kp[2])
+                                        kp_list.append(entry)
+                                except Exception:
+                                    continue
+                            if kp_list:
+                                keypoints = kp_list
+
                         predictions.append(PredictionResult(
                             class_id=pred["class_id"],
                             confidence=pred["confidence"],
                             label=pred.get("label"),
-                            bbox=bbox
+                            bbox=bbox,
+                            keypoints=keypoints
                         ))
                     
                     video_frames.append(VideoFrame(

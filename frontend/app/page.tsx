@@ -3,16 +3,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Timer, Image as ImageIcon, Video, Radio, ChevronDown, Brain } from 'lucide-react';
-import { ImageUpload, VideoUpload, VideoOptions, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults, VideoDownloader } from '../components';
+import { ImageUpload, VideoUpload, VideoOptions, StreamProcessor, PredictionResults, LoadingSpinner, ServerStatus, VideoFrameResults, VideoDownloader, DisplayOptions } from '../components';
 import CameraModal from '../components/CameraModal';
 import VideoOverlay from '../components/VideoOverlay';
 import ImageOverlay from '../components/ImageOverlay';
 import { checkHealth, predictImage, predictVideo, getAvailableModels } from '../utils/api';
 import { supabase } from '../lib/supabase';
 
-const REQUIRE_AUTH = process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true';
+const REQUIRE_AUTH = (typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process?.env?.NEXT_PUBLIC_REQUIRE_AUTH) === 'true';
 
-type Prediction = { class_id: number; confidence: number; label?: string };
+type Keypoint = { x: number; y: number; score?: number };
+type Prediction = { class_id: number; confidence: number; label?: string; bbox?: { x: number; y: number; width: number; height: number }; keypoints?: Keypoint[] };
 type Results = { 
   predictions: Prediction[]; 
   processing_time?: number;
@@ -101,6 +102,11 @@ export default function Page() {
   const [isVideoProcessing, setIsVideoProcessing] = useState(false);
   const [videoPlaybackError, setVideoPlaybackError] = useState(false);
   const [hideProcessedVideo, setHideProcessedVideo] = useState(false);
+  // Visualization options
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [showKeypoints, setShowKeypoints] = useState(true);
+  const [boxThreshold, setBoxThreshold] = useState(0.25);
+  const [keypointThreshold, setKeypointThreshold] = useState(0.25);
   
   // Video options state
   const [frameInterval, setFrameInterval] = useState(10);  // Process every 10th frame by default
@@ -759,6 +765,18 @@ export default function Page() {
             </section>
 
             <section className="grid gap-3">
+              {/* Visualization controls for image */}
+              <DisplayOptions
+                showBoxes={showBoxes}
+                setShowBoxes={setShowBoxes}
+                showKeypoints={showKeypoints}
+                setShowKeypoints={setShowKeypoints}
+                boxThreshold={boxThreshold}
+                setBoxThreshold={setBoxThreshold}
+                keypointThreshold={keypointThreshold}
+                setKeypointThreshold={setKeypointThreshold}
+                disabled={!results || (results?.predictions?.length ?? 0) === 0}
+              />
               {isLoading && (
                 <div className="grid gap-2 place-items-center text-center p-4">
                   <LoadingSpinner />
@@ -787,6 +805,11 @@ export default function Page() {
                       <ImageOverlay
                         imageSrc={previewUrl}
                         predictions={results.predictions}
+                        // Draw keypoints when model category is keypoint_detection
+                        drawKeypoints={showKeypoints}
+                        showBoxes={showBoxes}
+                        boxThreshold={boxThreshold}
+                        keypointThreshold={keypointThreshold}
                         className="rounded-xl border border-white/10 bg-slate-950"
                         onError={(error) => {
                           console.error('ImageOverlay error:', error);
@@ -838,6 +861,19 @@ export default function Page() {
               />
             )}
 
+            {/* Visualization controls for video */}
+            <DisplayOptions
+              showBoxes={showBoxes}
+              setShowBoxes={setShowBoxes}
+              showKeypoints={showKeypoints}
+              setShowKeypoints={setShowKeypoints}
+              boxThreshold={boxThreshold}
+              setBoxThreshold={setBoxThreshold}
+              keypointThreshold={keypointThreshold}
+              setKeypointThreshold={setKeypointThreshold}
+              disabled={!videoFrames || videoFrames.length === 0}
+            />
+
             <section className="grid gap-3">
               {isVideoProcessing && (
                 <div className="grid gap-2 place-items-center text-center p-4">
@@ -880,6 +916,10 @@ export default function Page() {
                         videoSrc={processedVideoUrl}
                         frames={videoFrames}
                         fileName={videoFile?.name?.replace(/\.[^/.]+$/, "_with_boxes.webm") || "processed_video_with_boxes.webm"}
+                        showBoxes={showBoxes}
+                        showKeypoints={showKeypoints}
+                        boxThreshold={boxThreshold}
+                        keypointThreshold={keypointThreshold}
                         className="inline-block"
                       />
                     </div>
@@ -890,6 +930,10 @@ export default function Page() {
                         <VideoOverlay
                           videoSrc={processedVideoUrl}
                           frames={videoFrames}
+                          showBoxes={showBoxes}
+                          showKeypoints={showKeypoints}
+                          boxThreshold={boxThreshold}
+                          keypointThreshold={keypointThreshold}
                           className="rounded-xl border border-white/10 bg-slate-950"
                           onError={(error) => {
                             console.error('VideoOverlay error:', error);

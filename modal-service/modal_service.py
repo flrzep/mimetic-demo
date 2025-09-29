@@ -58,6 +58,7 @@ image = (
         "torch",
         "torchvision", 
         "onnxruntime",
+        "pyyaml",
         "transformers",
         "datasets",
         "accelerate",
@@ -137,6 +138,7 @@ def get_model(model_name: str = "yolo"):
         
         # Load model config to get file paths
         import json
+        import yaml
         model_config = {}
         try:
             with open("/app/model_config.json", "r") as f:
@@ -148,11 +150,26 @@ def get_model(model_name: str = "yolo"):
         # Get model file information from config
         files_info = model_config.get("files", {})
         model_type = model_config.get("model_type", "pytorch")
+        category = model_config.get("category", "unknown")
         folder = files_info.get("folder", model_name)
         weights_file = files_info.get("weights")
         classes_file = files_info.get("classes")
         
         print(f"Model config: folder={folder}, weights={weights_file}, type={model_type}")
+
+        # Optional: load YAML classes/keypoints metadata if provided
+        class_names = None
+        keypoint_names = None
+        if classes_file and classes_file.endswith((".yml", ".yaml")):
+            try:
+                with open(os.path.join("/models", folder, classes_file), "r") as ymlf:
+                    ydata = yaml.safe_load(ymlf) or {}
+                    # Accept common keys
+                    class_names = ydata.get("classes") or ydata.get("labels")
+                    keypoint_names = ydata.get("keypoints") or ydata.get("kp")
+                    print(f"Loaded YAML class metadata: classes={bool(class_names)}, keypoints={bool(keypoint_names)}")
+            except Exception as yerr:
+                print(f"Warning: could not parse YAML classes file: {yerr}")
         
         # Load different models based on model_name and type
         if model_name in ["yolo", "yolo_onnx"]:
@@ -164,6 +181,12 @@ def get_model(model_name: str = "yolo"):
                 classes_file=classes_file,
                 model_type=model_type
             )
+            # Attach optional metadata if available
+            if class_names is not None:
+                try:
+                    models[model_name].class_names = class_names
+                except Exception:
+                    pass
         elif model_name == "efficientnet":
             # Placeholder for EfficientNet model loading
             print(f"Model {model_name} not yet implemented, using YOLO fallback")
@@ -174,6 +197,33 @@ def get_model(model_name: str = "yolo"):
             print(f"Model {model_name} not yet implemented, using YOLO fallback")
             from import_model import YOLOv10
             models[model_name] = YOLOv10()
+        elif category == "keypoint_detection" or model_name.startswith("keypoint_"):
+            # Generic ONNX keypoint model loader placeholder
+            # Tries to use import_model if a Keypoints class exists; otherwise raise a clear error
+            try:
+                from import_model import KeypointsONNX  # type: ignore
+                models[model_name] = KeypointsONNX(
+                    model_folder=folder,
+                    weights_file=weights_file,
+                    classes_file=classes_file
+                )
+                # Attach metadata if present
+                if class_names is not None:
+                    try:
+                        models[model_name].class_names = class_names
+                    except Exception:
+                        pass
+                if keypoint_names is not None:
+                    try:
+                        models[model_name].keypoint_names = keypoint_names
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"Keypoint model loader not available: {e}")
+                raise RuntimeError(
+                    "Keypoint ONNX model support is not implemented in import_model. "
+                    "Please add a KeypointsONNX class to import_model.py to enable keypoint inference."
+                )
         else:
             print(f"Unknown model {model_name}, falling back to YOLO")
             from import_model import YOLOv10
@@ -215,15 +265,15 @@ def process_image(image_b64: str, width: int = 640, height: int = 480, model_nam
         # Convert PIL to OpenCV format
         cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
         
-        # Run YOLO inference
-        print("Running YOLOv10 inference...")
+        # Run inference
+        print("Running inference...")
         results = model.predict(cv_image)
         
         # Convert to our API format
         predictions = []
         for result in results:
             x1, y1, x2, y2 = result["bbox"]
-            predictions.append({
+            pred = {
                 "class_id": model.class_names.index(result["class"]),
                 "confidence": result["confidence"],
                 "label": result["class"],
@@ -233,9 +283,28 @@ def process_image(image_b64: str, width: int = 640, height: int = 480, model_nam
                     "width": float(x2 - x1),
                     "height": float(y2 - y1)
                 }
-            })
+            }
+            # Optional keypoints passthrough if model provides them
+            if "keypoints" in result and isinstance(result["keypoints"], (list, tuple)):
+                # Expect a list of [x, y, score?] or dicts; normalize to dicts
+                kps_out = []
+                for idx, kp in enumerate(result["keypoints"]):
+                    if isinstance(kp, dict):
+                        kps_out.append({
+                            "x": float(kp.get("x", 0.0)),
+                            "y": float(kp.get("y", 0.0)),
+                            **({"score": float(kp["score"]) } if "score" in kp else {})
+                        })
+                    elif isinstance(kp, (list, tuple)):
+                        item = {"x": float(kp[0]), "y": float(kp[1])}
+                        if len(kp) > 2:
+                            item["score"] = float(kp[2])
+                        kps_out.append(item)
+                if kps_out:
+                    pred["keypoints"] = kps_out
+            predictions.append(pred)
         
-        print(f"YOLOv10 detected {len(predictions)} objects")
+        print(f"Detected {len(predictions)} objects")
         return predictions
         
     except Exception as e:
@@ -310,18 +379,18 @@ def process_video(video_b64: str, frame_skip: int = 10, model_name: str = "yolo"
                 if frame_count % frame_skip == 0:
                     timestamp = frame_count / fps if fps > 0 else frame_count * 0.033  # fallback to ~30fps
                     
-                    # Run YOLOv10 inference on this frame
+                    # Run inference on this frame
                     print(f"Processing frame {frame_count} at timestamp {timestamp:.2f}s")
                     
                     try:
-                        # Run YOLO inference
+                        # Run inference
                         results = model.predict(frame)
                         
                         # Convert to our API format
                         frame_predictions = []
                         for result in results:
                             x1, y1, x2, y2 = result["bbox"]
-                            frame_predictions.append({
+                            pred = {
                                 "class_id": model.class_names.index(result["class"]),
                                 "confidence": result["confidence"],
                                 "label": result["class"],
@@ -331,7 +400,25 @@ def process_video(video_b64: str, frame_skip: int = 10, model_name: str = "yolo"
                                     "width": float(x2 - x1),
                                     "height": float(y2 - y1)
                                 }
-                            })
+                            }
+                            # Optional keypoints passthrough
+                            if "keypoints" in result and isinstance(result["keypoints"], (list, tuple)):
+                                kps_out = []
+                                for idx, kp in enumerate(result["keypoints"]):
+                                    if isinstance(kp, dict):
+                                        kps_out.append({
+                                            "x": float(kp.get("x", 0.0)),
+                                            "y": float(kp.get("y", 0.0)),
+                                            **({"score": float(kp["score"]) } if "score" in kp else {})
+                                        })
+                                    elif isinstance(kp, (list, tuple)):
+                                        item = {"x": float(kp[0]), "y": float(kp[1])}
+                                        if len(kp) > 2:
+                                            item["score"] = float(kp[2])
+                                        kps_out.append(item)
+                                if kps_out:
+                                    pred["keypoints"] = kps_out
+                            frame_predictions.append(pred)
                         
                         print(f"Frame {frame_count}: detected {len(frame_predictions)} objects")
                         
@@ -379,6 +466,8 @@ def create_web_app():
         confidence: float
         label: str | None = None
         bbox: Optional[Dict[str, float]] = None
+        # Optional keypoints: list of {x, y, score?}
+        keypoints: Optional[List[Dict[str, float]]] = None
 
     class PredictRequest(BaseModel):
         image: str  # base64 encoded image

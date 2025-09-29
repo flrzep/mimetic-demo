@@ -471,3 +471,269 @@ class YOLOv10:
             text_thickness,
             cv2.LINE_AA,
         )
+
+
+class KeypointsONNX:
+    """Generic ONNX keypoint detection wrapper.
+
+    Tries to support common output conventions:
+    - Keypoint R-CNN style: boxes (N,4), labels (N,), scores (N,), keypoints (N,K,2 or N,K,3)
+    - YOLO pose-style: predictions (N, 6 + K*3) with [x1,y1,x2,y2,conf,class_id,kp1x,kp1y,kp1s,...]
+
+    Returns results in the same API format used by YOLOv10.predict():
+    [ { "class": str, "confidence": float, "bbox": [x1,y1,x2,y2], "keypoints"?: [ {x,y,score?}, ... ] } ]
+    """
+
+    def __init__(self, model_folder: str, weights_file: str, classes_file: str = None):
+        self.model_folder = model_folder
+        self.weights_file = weights_file
+        self.classes_file = classes_file
+
+        self.session = None
+        self.input_names = []
+        self.output_names = []
+        self.input_height = None  # type: ignore
+        self.input_width = None   # type: ignore
+        self.img_height = None
+        self.img_width = None
+
+        self.class_names = None  # type: ignore
+        self.keypoint_names = None  # type: ignore
+
+        # Optional preprocessing config
+        self.mean = None  # type: ignore
+        self.std = None   # type: ignore
+        self.scale = 1.0
+
+        self._load_classes()
+        self._load_model()
+
+    def _load_classes(self):
+        # Try YAML first (may include keypoint names)
+        import json
+        import yaml
+        self.class_names = None
+        self.keypoint_names = None
+        if self.classes_file:
+            yaml_path = Path(f"/models/{self.model_folder}/{self.classes_file}")
+            if yaml_path.suffix.lower() in (".yml", ".yaml") and yaml_path.exists():
+                try:
+                    with open(yaml_path, "r") as f:
+                        data = yaml.safe_load(f) or {}
+                        self.class_names = data.get("classes") or data.get("labels")
+                        self.keypoint_names = data.get("keypoints") or data.get("kp")
+                        if self.class_names:
+                            self.class_names = [str(c) for c in self.class_names]
+                        if self.keypoint_names:
+                            self.keypoint_names = [str(k) for k in self.keypoint_names]
+                        print(f"Loaded YAML classes/keypoints from {yaml_path}")
+                        # Optional preprocessing: { mean: [..], std: [..], scale: 255 or 1.0 }
+                        pp = data.get("preprocess") or {}
+                        if isinstance(pp, dict):
+                            m = pp.get("mean")
+                            s = pp.get("std")
+                            sc = pp.get("scale")
+                            try:
+                                if isinstance(m, (list, tuple)) and len(m) == 3:
+                                    self.mean = np.array(m, dtype=np.float32)
+                                if isinstance(s, (list, tuple)) and len(s) == 3:
+                                    self.std = np.array(s, dtype=np.float32)
+                                if isinstance(sc, (int, float)):
+                                    self.scale = float(sc)
+                            except Exception as e:
+                                print(f"Warning: invalid preprocess config in YAML: {e}")
+                except Exception as e:
+                    print(f"Warning: failed parsing YAML classes file {yaml_path}: {e}")
+
+        # Fallback to txt classes
+        if self.class_names is None:
+            fallback_txts = [
+                Path(f"/models/{self.model_folder}/classes.txt"),
+                Path(f"/models/{self.model_folder}/yolo_classes.txt"),
+                Path("/models/yolo/yolo_classes.txt"),
+                this_dir / "models" / "yolo" / "yolo_classes.txt",
+            ]
+            for p in fallback_txts:
+                try:
+                    if p.exists():
+                        with open(p, "r") as f:
+                            self.class_names = [line.strip() for line in f if line.strip()]
+                            print(f"Loaded class names from {p}")
+                            break
+                except Exception:
+                    continue
+
+        if self.class_names is None:
+            print("No classes file found; defaulting to ['object']")
+            self.class_names = ["object"]
+
+    def _load_model(self):
+        model_path = f"/models/{self.model_folder}/{self.weights_file}"
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Keypoints ONNX model not found at {model_path}")
+
+        providers = [
+            (
+                "TensorrtExecutionProvider",
+                {
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": "/cache/onnx.cache",
+                },
+            ),
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        print(f"Initializing ONNXRuntime session for keypoints model: {model_path}")
+        self.session = onnxruntime.InferenceSession(model_path, providers=providers)
+        self._get_io_details()
+
+    def _get_io_details(self):
+        model_inputs = self.session.get_inputs()
+        self.input_names = [i.name for i in model_inputs]
+        shape = model_inputs[0].shape  # [N,C,H,W]
+        # Some models export dynamic dims like 'None' or string names
+        try:
+            self.input_height = int(shape[2]) if isinstance(shape[2], (int, np.integer)) else None
+            self.input_width = int(shape[3]) if isinstance(shape[3], (int, np.integer)) else None
+        except Exception:
+            self.input_height = None
+            self.input_width = None
+
+        model_outputs = self.session.get_outputs()
+        self.output_names = [o.name for o in model_outputs]
+        print(f"Model IO: inputs={self.input_names}, outputs={self.output_names}, size={self.input_width}x{self.input_height}")
+
+    def prepare_input(self, image: np.ndarray) -> np.ndarray:
+        self.img_height, self.img_width = image.shape[:2]
+        img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Use dynamic input if model allows; otherwise resize to fixed size
+        if self.input_width is not None and self.input_height is not None:
+            if (img.shape[1], img.shape[0]) != (self.input_width, self.input_height):
+                img = cv2.resize(img, (self.input_width, self.input_height))
+        else:
+            # No fixed input size -> keep original and remember for scaling
+            self.input_width = img.shape[1]
+            self.input_height = img.shape[0]
+
+        # Scale/normalize
+        img = img.astype(np.float32)
+        if self.scale and self.scale != 1.0:
+            img = img / self.scale
+        else:
+            img = img / 255.0
+        if self.mean is not None and self.std is not None:
+            # Expect mean/std in RGB order; img is HWC in 0..1
+            img = (img - self.mean) / self.std
+        img = np.transpose(img, (2, 0, 1))  # HWC->CHW
+        return np.expand_dims(img, axis=0)
+
+    def predict(self, image: np.ndarray, conf_threshold: float = 0.25):
+        inp = self.prepare_input(image)
+        outputs = self.session.run(self.output_names, {self.input_names[0]: inp})
+
+        # Try parsing as Keypoint R-CNN first
+        parsed = self._parse_keypoint_rcnn(outputs, conf_threshold)
+        if parsed is None:
+            parsed = self._parse_yolo_pose(outputs, conf_threshold)
+        if parsed is None:
+            print("Warning: could not parse ONNX keypoint outputs; returning empty results")
+            return []
+        return parsed
+
+    def _parse_keypoint_rcnn(self, outputs, conf_threshold):
+        # Expect arrays among outputs: boxes(N,4), labels(N), scores(N), keypoints(N,K,2or3)
+        boxes = labels = scores = keypoints = None
+        for arr in outputs:
+            if not isinstance(arr, np.ndarray):
+                continue
+            if arr.ndim == 2 and arr.shape[1] == 4 and boxes is None:
+                boxes = arr
+            elif arr.ndim == 1 and arr.dtype.kind in ("i", "u") and labels is None:
+                labels = arr
+            elif arr.ndim == 1 and arr.dtype.kind == "f" and scores is None:
+                scores = arr
+            elif arr.ndim == 3 and keypoints is None:
+                keypoints = arr
+
+        if boxes is None or labels is None or scores is None:
+            return None
+
+        n = min(len(boxes), len(labels), len(scores))
+        if keypoints is not None:
+            n = min(n, keypoints.shape[0])
+        if n == 0:
+            return []
+
+        results = []
+        sx = self.img_width / self.input_width
+        sy = self.img_height / self.input_height
+        for i in range(n):
+            conf = float(scores[i])
+            if conf < conf_threshold:
+                continue
+            x1, y1, x2, y2 = boxes[i]
+            # scale to original image size if inputs are in model scale
+            x1, y1, x2, y2 = x1 * sx, y1 * sy, x2 * sx, y2 * sy
+            label_id = int(labels[i])
+            label = self.class_names[label_id] if 0 <= label_id < len(self.class_names) else str(label_id)
+            pred = {
+                "class": label,
+                "confidence": conf,
+                "bbox": [int(x1), int(y1), int(x2), int(y2)],
+            }
+            if keypoints is not None and i < keypoints.shape[0]:
+                kps = keypoints[i]
+                kps_out = []
+                # kps shape: (K,2) or (K,3)
+                for kp in kps:
+                    if kp.shape[-1] >= 2:
+                        xk = float(kp[0]) * sx
+                        yk = float(kp[1]) * sy
+                        item = {"x": xk, "y": yk}
+                        if kp.shape[-1] >= 3:
+                            # Some models output visibility {0,1,2}; treat as score but keep value
+                            item["score"] = float(kp[2])
+                        kps_out.append(item)
+                if kps_out:
+                    pred["keypoints"] = kps_out
+            results.append(pred)
+        return results
+
+    def _parse_yolo_pose(self, outputs, conf_threshold):
+        # Assume single output [N, 6 + K*3] -> [x1,y1,x2,y2,conf,cls,kps...]
+        if not outputs:
+            return None
+        out = outputs[0]
+        if not isinstance(out, np.ndarray):
+            return None
+        pred = np.squeeze(out)
+        if pred.ndim != 2 or pred.shape[1] < 6:
+            return None
+
+        n, d = pred.shape
+        rest = d - 6
+        K = rest // 3 if rest >= 3 else 0
+        results = []
+        sx = self.img_width / self.input_width
+        sy = self.img_height / self.input_height
+        for i in range(n):
+            x1, y1, x2, y2, conf, cls_id = pred[i, :6]
+            conf = float(conf)
+            if conf < conf_threshold:
+                continue
+            label_id = int(cls_id)
+            label = self.class_names[label_id] if 0 <= label_id < len(self.class_names) else str(label_id)
+            res = {
+                "class": label,
+                "confidence": conf,
+                "bbox": [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)],
+            }
+            if K > 0:
+                kps = pred[i, 6:6 + 3 * K].reshape(K, 3)
+                kp_list = []
+                for (xk, yk, sk) in kps:
+                    kp_list.append({"x": float(xk * sx), "y": float(yk * sy), "score": float(sk)})
+                res["keypoints"] = kp_list
+            results.append(res)
+
+        return results

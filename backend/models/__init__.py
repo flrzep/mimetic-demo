@@ -20,11 +20,18 @@ class BoundingBox(BaseModel):
     width: int
     height: int
 
+class Keypoint(BaseModel):
+    x: float
+    y: float
+    score: Optional[float] = None
+
 class PredictionResult(BaseModel):
     class_id: int
     confidence: float
     label: Optional[str] = None
     bbox: Optional[BoundingBox] = None
+    # Optional list of keypoints when model outputs them
+    keypoints: Optional[List[Keypoint]] = None
 
 class PredictionResponse(BaseModel):
     success: bool

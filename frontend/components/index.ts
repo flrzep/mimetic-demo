@@ -8,3 +8,4 @@ export { default as ServerStatus } from './ServerStatus';
 export { default as VideoOverlay } from './VideoOverlay';
 export { default as VideoFrameResults } from './VideoFrameResults';
 export { default as VideoDownloader } from './VideoDownloader';
+export { default as DisplayOptions } from './DisplayOptions';

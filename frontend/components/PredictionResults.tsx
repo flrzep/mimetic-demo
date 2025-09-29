@@ -5,7 +5,7 @@ function barWidth(p: number) {
   return pct + '%';
 }
 
-export type Prediction = { class_id: number; confidence: number };
+export type Prediction = { class_id: number; confidence: number; label?: string };
 export type Results = { predictions: Prediction[]; processing_time?: number };
 
 const PredictionResults: React.FC<{ results: Results }> = ({ results }) => {
@@ -24,8 +24,7 @@ const PredictionResults: React.FC<{ results: Results }> = ({ results }) => {
           {predictions.map((p, idx) => (
             <li key={idx} className="grid gap-2">
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-sm sm:text-base">Class {p.class_id}</span>
-                <span className="text-slate-400 text-sm sm:text-base">{p.label}</span>
+                <span className="text-slate-400 text-sm sm:text-base">{p.label ?? `Class ${p.class_id}`}</span>
                 <span className="text-slate-400 text-sm sm:text-base font-mono">{(p.confidence * 100).toFixed(1)}%</span>
               </div>
               <div className="h-2 rounded-full bg-white/10 overflow-hidden border border-white/10">
